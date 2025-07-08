@@ -3,8 +3,6 @@
 
 set(XSAN_COMMON_SOURCES
     error.c
-    types.c
-    constants.c
     version.c
 )
 

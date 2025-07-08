@@ -5,13 +5,7 @@ set(XSAN_UTILS_SOURCES
     log.c
     memory.c
     string_utils.c
-    time_utils.c
     config.c
-    hashtable.c
-    list.c
-    ring_buffer.c
-    thread_pool.c
-    atomic.c
 )
 
 set(XSAN_UTILS_HEADERS

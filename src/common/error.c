@@ -14,40 +14,18 @@
 static const char *error_messages[] = {
     [XSAN_OK] = "Success",
     
-    /* 通用错误 */
+    /* 基本错误 */
     [XSAN_ERROR_GENERIC] = "Generic error",
-    [XSAN_ERROR_INVALID_PARAM] = "Invalid parameter",
-    [XSAN_ERROR_NULL_POINTER] = "Null pointer",
+    [XSAN_ERROR_INVALID_PARAM] = "Invalid parameter", 
     [XSAN_ERROR_OUT_OF_MEMORY] = "Out of memory",
-    [XSAN_ERROR_BUFFER_TOO_SMALL] = "Buffer too small",
-    [XSAN_ERROR_NOT_IMPLEMENTED] = "Not implemented",
-    [XSAN_ERROR_PERMISSION_DENIED] = "Permission denied",
-    [XSAN_ERROR_RESOURCE_BUSY] = "Resource busy",
-    [XSAN_ERROR_TIMEOUT] = "Timeout",
-    [XSAN_ERROR_INTERRUPTED] = "Interrupted",
-    
-    /* 系统错误 */
-    [XSAN_ERROR_SYSTEM] = "System error",
     [XSAN_ERROR_IO] = "I/O error",
-    [XSAN_ERROR_FILE_NOT_FOUND] = "File not found",
-    [XSAN_ERROR_FILE_EXISTS] = "File exists",
-    [XSAN_ERROR_DISK_FULL] = "Disk full",
     [XSAN_ERROR_NETWORK] = "Network error",
-    [XSAN_ERROR_CONNECTION_LOST] = "Connection lost",
-    [XSAN_ERROR_PROTOCOL] = "Protocol error",
-    
-    /* 集群错误 */
+    [XSAN_ERROR_NOT_FOUND] = "Not found",
+    [XSAN_ERROR_TIMEOUT] = "Timeout",
     [XSAN_ERROR_CLUSTER] = "Cluster error",
-    [XSAN_ERROR_NODE_NOT_FOUND] = "Node not found",
-    [XSAN_ERROR_NODE_UNREACHABLE] = "Node unreachable",
-    [XSAN_ERROR_CLUSTER_NOT_READY] = "Cluster not ready",
-    [XSAN_ERROR_SPLIT_BRAIN] = "Split brain detected",
-    [XSAN_ERROR_QUORUM_LOST] = "Quorum lost",
-    [XSAN_ERROR_LEADER_ELECTION] = "Leader election failed",
-    [XSAN_ERROR_MEMBERSHIP_CHANGE] = "Membership change failed",
-    
-    /* 存储错误 */
     [XSAN_ERROR_STORAGE] = "Storage error",
+    [XSAN_ERROR_REPLICATION] = "Replication error"
+};
     [XSAN_ERROR_VOLUME_NOT_FOUND] = "Volume not found",
     [XSAN_ERROR_VOLUME_EXISTS] = "Volume exists",
     [XSAN_ERROR_VOLUME_BUSY] = "Volume busy",

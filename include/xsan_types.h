@@ -3,8 +3,23 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <uuid/uuid.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+/* UUID support (optional) */
+#ifdef HAVE_UUID
+#include <uuid/uuid.h>
+typedef struct {
+    uuid_t uuid;
+} xsan_uuid_t;
+#else
+/* Fallback UUID implementation */
+typedef struct {
+    uint8_t data[16];
+} xsan_uuid_t;
+#endif
 
 /* Maximum limits */
 #define XSAN_MAX_NODES 64
@@ -15,20 +30,19 @@
 #define XSAN_BLOCK_SIZE 4096
 #define XSAN_DEFAULT_REPLICAS 2
 
-/* Error codes */
+/* Error codes - use the detailed ones from xsan_error.h */
 typedef enum {
-    XSAN_SUCCESS = 0,
-    XSAN_ERROR_INVALID_PARAM = -1,
-    XSAN_ERROR_MEMORY = -2,
-    XSAN_ERROR_IO = -3,
-    XSAN_ERROR_NETWORK = -4,
-    XSAN_ERROR_NOT_FOUND = -5,
-    XSAN_ERROR_EXISTS = -6,
-    XSAN_ERROR_PERMISSION = -7,
-    XSAN_ERROR_TIMEOUT = -8,
-    XSAN_ERROR_CLUSTER = -9,
-    XSAN_ERROR_STORAGE = -10,
-    XSAN_ERROR_REPLICATION = -11
+    XSAN_OK = 0,
+    XSAN_ERROR_GENERIC = -1,
+    XSAN_ERROR_INVALID_PARAM = -2,
+    XSAN_ERROR_OUT_OF_MEMORY = -3,
+    XSAN_ERROR_IO = -4,
+    XSAN_ERROR_NETWORK = -5,
+    XSAN_ERROR_NOT_FOUND = -6,
+    XSAN_ERROR_TIMEOUT = -7,
+    XSAN_ERROR_CLUSTER = -8,
+    XSAN_ERROR_STORAGE = -9,
+    XSAN_ERROR_REPLICATION = -10
 } xsan_error_t;
 
 /* Node states */
@@ -63,11 +77,6 @@ typedef enum {
     XSAN_TIER_BALANCED,      /* SSD cache + HDD capacity */
     XSAN_TIER_CAPACITY       /* All HDD */
 } xsan_tier_t;
-
-/* UUID wrapper */
-typedef struct {
-    uuid_t uuid;
-} xsan_uuid_t;
 
 /* Network address */
 typedef struct {
