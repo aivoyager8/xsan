@@ -54,8 +54,8 @@ typedef enum {
     // Data Replication Messages
     XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_REQ = 600,  ///< Request to write a block to a replica
     XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_RESP = 601, ///< Response to a replica write request
-    // XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ = 602, // Future: Request to read a block from a replica
-    // XSAN_MSG_TYPE_REPLICA_READ_BLOCK_RESP = 603, // Future: Response to a replica read request
+    XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ = 602,  ///< Request to read a block from a replica
+    XSAN_MSG_TYPE_REPLICA_READ_BLOCK_RESP = 603, ///< Response to a replica read request
     // XSAN_MSG_TYPE_REPLICA_SYNC_REQ = 610,      // Future: Request to sync a range of blocks
     // XSAN_MSG_TYPE_REPLICA_SYNC_RESP = 611,     // Future: Response to sync request
 
@@ -97,6 +97,32 @@ typedef struct {
 // Size of the structured part of the replica write request payload.
 // The actual data blocks will follow this.
 #define XSAN_REPLICA_WRITE_REQ_PAYLOAD_SIZE sizeof(xsan_replica_write_req_payload_t)
+
+
+/**
+ * @brief Payload for XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ.
+ */
+typedef struct {
+    xsan_volume_id_t volume_id;         ///< ID of the volume this block belongs to
+    uint64_t block_lba_on_volume;       ///< Logical block address within the VOLUME to read
+    uint32_t num_blocks;                ///< Number of blocks to read
+    // uint32_t block_size;             // Assumed to be known by replica from volume metadata
+} __attribute__((packed)) xsan_replica_read_req_payload_t;
+
+/**
+ * @brief Payload for XSAN_MSG_TYPE_REPLICA_READ_BLOCK_RESP.
+ * The actual block data follows this structured payload if status is XSAN_OK.
+ */
+typedef struct {
+    xsan_error_t status;                ///< XSAN_OK on success, or an error code.
+    xsan_volume_id_t volume_id;         ///< ID of the volume this block belongs to (for verification)
+    uint64_t block_lba_on_volume;       ///< The starting LBA that this response pertains to
+    uint32_t num_blocks;                ///< Number of blocks read (if successful) or 0 on error
+    // uint32_t data_checksum;          // Optional: checksum of the data blocks that follow
+} __attribute__((packed)) xsan_replica_read_resp_payload_t;
+
+#define XSAN_REPLICA_READ_REQ_PAYLOAD_SIZE sizeof(xsan_replica_read_req_payload_t)
+#define XSAN_REPLICA_READ_RESP_PAYLOAD_SIZE sizeof(xsan_replica_read_resp_payload_t)
 
 /**
  * @brief Message header structure for all XSAN protocol messages.

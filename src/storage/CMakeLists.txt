@@ -43,6 +43,7 @@ target_link_libraries(xsan_storage PUBLIC # Use PUBLIC to propagate interface in
     xsan_common     # For error types, list, hashtable, ringbuffer, (spdk/uuid.h via xsan_types.h)
     xsan_bdev       # disk_manager and volume_manager (via xsan_io) depend on xsan_bdev
     xsan_io         # volume_manager depends on xsan_io for async operations
+    xsan_replication # volume_manager uses xsan_replicated_io_ctx_t
     xsan_metadata   # For using the RocksDB wrapper
     # xsan_network  # Only if storage directly does network ops, unlikely for disk/vol managers
 
