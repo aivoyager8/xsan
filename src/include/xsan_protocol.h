@@ -51,9 +51,52 @@ typedef enum {
     // General Error Response (if a specific response type isn't used for errors)
     XSAN_MSG_TYPE_ERROR_RESP = 500,
 
+    // Data Replication Messages
+    XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_REQ = 600,  ///< Request to write a block to a replica
+    XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_RESP = 601, ///< Response to a replica write request
+    // XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ = 602, // Future: Request to read a block from a replica
+    // XSAN_MSG_TYPE_REPLICA_READ_BLOCK_RESP = 603, // Future: Response to a replica read request
+    // XSAN_MSG_TYPE_REPLICA_SYNC_REQ = 610,      // Future: Request to sync a range of blocks
+    // XSAN_MSG_TYPE_REPLICA_SYNC_RESP = 611,     // Future: Response to sync request
+
     // Add more message types as the protocol evolves
     XSAN_MSG_TYPE_MAX // Sentinel, keep last
 } xsan_message_type_t;
+
+
+// --- Payload Structures for Replication Messages ---
+
+/**
+ * @brief Payload for XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_REQ.
+ * The actual block data follows this structured payload within the xsan_message_t's payload field.
+ */
+typedef struct {
+    xsan_volume_id_t volume_id;         ///< ID of the volume this block belongs to (on the target replica node)
+    // Instead of disk_id, the replica node should know where to place this based on its local volume layout.
+    // Or, if the primary dictates exact placement on replica:
+    // xsan_disk_id_t target_disk_id_on_replica;
+    // char target_bdev_name_on_replica[XSAN_MAX_NAME_LEN];
+
+    uint64_t block_lba_on_volume;       ///< Logical block address within the VOLUME on the replica node
+                                        ///< The replica node will map this to its physical storage.
+    uint32_t num_blocks;                ///< Number of blocks being written (data length = num_blocks * block_size)
+    // uint32_t block_size;             // This should be known from the volume metadata or consistent.
+                                        // If it can vary, it needs to be here. Assume consistent for now.
+    // uint32_t data_checksum;          // Optional: checksum of the data blocks that follow
+} __attribute__((packed)) xsan_replica_write_req_payload_t;
+
+/**
+ * @brief Payload for XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_RESP.
+ */
+typedef struct {
+    xsan_error_t status;                ///< XSAN_OK on success, or an error code.
+    uint64_t block_lba_on_volume;       ///< The starting LBA that this response pertains to
+    uint32_t num_blocks_processed;      ///< Number of blocks successfully/attempted to process
+} __attribute__((packed)) xsan_replica_write_resp_payload_t;
+
+// Size of the structured part of the replica write request payload.
+// The actual data blocks will follow this.
+#define XSAN_REPLICA_WRITE_REQ_PAYLOAD_SIZE sizeof(xsan_replica_write_req_payload_t)
 
 /**
  * @brief Message header structure for all XSAN protocol messages.

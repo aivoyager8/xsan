@@ -1,7 +1,8 @@
 add_library(xsan_network STATIC
-    socket.c
-    event_loop.c
-    protocol.c
+    socket.c          # Original socket wrappers (might be deprecated/refactored if using spdk_sock fully)
+    event_loop.c      # Original event loop (might be deprecated/refactored)
+    protocol.c        # Message serialization/deserialization
+    xsan_node_comm.c  # New SPDK sock based communication
 )
 
 target_include_directories(xsan_network PUBLIC

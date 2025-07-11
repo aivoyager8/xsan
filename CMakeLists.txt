@@ -30,10 +30,11 @@ if(XSAN_ENABLE_SPDK)
         spdk_log
         spdk_util
         spdk_thread
-        spdk_event      # Core event library (for spdk_app_*)
+        spdk_event      # Core event library (for spdk_app_*, sock_group polling)
+        spdk_net        # For spdk_net_framework and potentially sock implementations
         spdk_bdev
     )
-    # Optional: spdk_rpc, spdk_jsonrpc, spdk_nvmf
+    # Optional: spdk_rpc, spdk_jsonrpc, spdk_nvmf, spdk_sock_posix (if explicit linking needed)
 
     set(XSAN_SPDK_INCLUDE_DIRS_INIT "")
     set(XSAN_SPDK_LIBRARIES_INIT "")
