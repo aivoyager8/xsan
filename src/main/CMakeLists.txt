@@ -15,7 +15,8 @@ target_link_libraries(xsan_node PRIVATE
     xsan_core       # For SPDK management
     xsan_bdev       # For BDEV operations
     xsan_network    # For socket, event_loop, protocol
-    xsan_common     # For error, version, common data structures
+    xsan_storage    # For disk_manager, volume_manager (future)
+    xsan_common     # For error, version, common data structures (list, hashtable, ringbuffer)
     xsan_utils      # For config, log, memory, string_utils
     Threads::Threads # From find_package(Threads REQUIRED) in root
 )

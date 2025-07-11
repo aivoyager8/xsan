@@ -4,6 +4,9 @@
 set(XSAN_COMMON_SOURCES
     error.c
     version.c
+    hashtable.c
+    list.c
+    ring_buffer.c
 )
 
 set(XSAN_COMMON_HEADERS
