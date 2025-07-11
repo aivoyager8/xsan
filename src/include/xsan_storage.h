@@ -27,8 +27,9 @@ typedef struct {
     xsan_node_id_t node_id;                     ///< ID of the node hosting this replica
     char node_ip_addr[INET6_ADDRSTRLEN];        ///< IP address of the replica node for communication
     uint16_t node_comm_port;                    ///< Communication port on the replica node
-    // char target_on_replica[XSAN_MAX_NAME_LEN]; ///< Optional: Specific storage target name on replica node (e.g. bdev name)
-                                                ///< If not used, replica node determines placement based on volume_id.
+    xsan_storage_state_t state;                 ///< Current state of this specific replica (e.g., ONLINE, OFFLINE, DEGRADED)
+    uint64_t last_successful_contact_time_us;   ///< Timestamp (microseconds) of last known successful interaction
+    // char target_on_replica[XSAN_MAX_NAME_LEN]; ///< Optional: Specific storage target name on replica node
 } xsan_replica_location_t;
 
 
