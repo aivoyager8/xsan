@@ -92,6 +92,7 @@ add_subdirectory(src/common)
 add_subdirectory(src/network) # Added network
 add_subdirectory(src/core)    # Added core (for spdk_manager)
 add_subdirectory(src/bdev)    # Added bdev
+add_subdirectory(src/storage) # Added storage (for disk_manager)
 add_subdirectory(src/main)    # Main executable likely defined here
 add_subdirectory(tests)
 
