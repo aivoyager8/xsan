@@ -1,402 +1,169 @@
-/**
- * XSAN 节点守护进程
- * 
- * 主要功能：
- * 1. 初始化各个模块
- * 2. 启动集群服务
- * 3. 处理命令行参数
- * 4. 信号处理和优雅关闭
- */
+#include "xsan_log.h"
+#include "xsan_config.h"        // May not be used directly here, but good to have
+#include "xsan_spdk_manager.h"
+#include "xsan_bdev.h"
+#include "xsan_error.h"         // For error strings
+#include "xsan_string_utils.h"  // For xsan_strcpy_safe if needed
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
-#include <unistd.h>
-#include <getopt.h>
-#include <sys/stat.h>
-#include <errno.h>
+#include <stdlib.h>             // For EXIT_SUCCESS, EXIT_FAILURE
+#include <string.h>             // For memset, strstr, memcmp
+#include <unistd.h>             // For sleep (debugging)
 
-#include "xsan_error.h"
-#include "xsan_log.h"
-#include "xsan_types.h"
+// SPDK Headers needed for this test/main file specifically
+#include "spdk/uuid.h"          // For spdk_uuid_fmt_lower, SPDK_UUID_STRING_LEN
+#include "spdk/env.h"           // For spdk_dma_malloc/free (though wrapped by xsan_bdev)
 
-/* 全局变量 */
-static bool g_shutdown_requested = false;
-static const char *g_config_file = NULL;
-static const char *g_data_dir = "/var/lib/xsan";
-static const char *g_log_file = NULL;
-static xsan_log_level_t g_log_level = XSAN_LOG_LEVEL_INFO;
-static bool g_daemonize = false;
-static bool g_version_only = false;
-
-/* 函数声明 */
-static void print_usage(const char *program_name);
-static void print_version(void);
-static void signal_handler(int sig);
-static int parse_arguments(int argc, char *argv[]);
-static int setup_logging(void);
-static int setup_directories(void);
-static int daemonize_process(void);
-static int initialize_modules(void);
-static void cleanup_modules(void);
-static int main_loop(void);
+// Global flag to indicate if the main SPDK application part is still running.
+// Useful if the main_start function is non-blocking and we need to wait.
+// In this simple case, main_start itself will call for stop.
+// static volatile bool g_xsan_app_is_running = false;
 
 /**
- * 打印使用帮助
+ * @brief Main application function executed on an SPDK reactor thread.
+ * This function is passed to xsan_spdk_manager_start_app.
+ *
+ * @param arg1 Custom argument passed from xsan_spdk_manager_start_app (currently NULL).
+ * @param rc Return code from the SPDK framework's internal start process. 0 on success.
  */
-static void print_usage(const char *program_name)
-{
-    printf("Usage: %s [OPTIONS]\n", program_name);
-    printf("\n");
-    printf("XSAN Distributed Storage System - Node Daemon\n");
-    printf("\n");
-    printf("Options:\n");
-    printf("  -c, --config FILE       Configuration file path\n");
-    printf("  -d, --data-dir DIR      Data directory (default: %s)\n", g_data_dir);
-    printf("  -l, --log-file FILE     Log file path\n");
-    printf("  -L, --log-level LEVEL   Log level (trace|debug|info|warn|error|fatal)\n");
-    printf("  -D, --daemon            Run as daemon\n");
-    printf("  -v, --version           Show version and exit\n");
-    printf("  -h, --help              Show this help and exit\n");
-    printf("\n");
-    printf("Examples:\n");
-    printf("  %s -c /etc/xsan/node.conf\n", program_name);
-    printf("  %s -d /data/xsan -l /var/log/xsan.log -D\n", program_name);
-    printf("  %s -L debug\n", program_name);
-    printf("\n");
-}
+static void xsan_node_main_spdk_thread_start(void *arg1, int rc) {
+    (void)arg1; // Unused argument
 
-/**
- * 打印版本信息
- */
-static void print_version(void)
-{
-    extern const char *xsan_get_version(void);
-    extern const char *xsan_get_build_info(void);
-    
-    printf("XSAN Node Daemon\n");
-    printf("Version: %s\n", xsan_get_version());
-    printf("Built: %s\n", xsan_get_build_info());
-    printf("Copyright (c) 2024 XSAN Project\n");
-}
+    XSAN_LOG_INFO("XSAN SPDK application thread started (spdk_app_start internal rc: %d).", rc);
 
-/**
- * 信号处理器
- */
-static void signal_handler(int sig)
-{
-    switch (sig) {
-        case SIGINT:
-        case SIGTERM:
-            XSAN_LOG_INFO("Received signal %d, shutting down...", sig);
-            g_shutdown_requested = true;
-            break;
-        case SIGHUP:
-            XSAN_LOG_INFO("Received SIGHUP, reloading configuration...");
-            /* TODO: 重新加载配置 */
-            break;
-        default:
-            XSAN_LOG_WARN("Received unknown signal %d", sig);
-            break;
+    if (rc != 0) {
+        XSAN_LOG_FATAL("SPDK framework initialization failed prior to calling app main. Cannot proceed.");
+        // xsan_spdk_manager_request_app_stop(); // spdk_app_start would have failed and returned.
+                                               // No need to request stop if we didn't even start fully.
+        return;
     }
-}
 
-/**
- * 解析命令行参数
- */
-static int parse_arguments(int argc, char *argv[])
-{
-    static struct option long_options[] = {
-        {"config",    required_argument, 0, 'c'},
-        {"data-dir",  required_argument, 0, 'd'},
-        {"log-file",  required_argument, 0, 'l'},
-        {"log-level", required_argument, 0, 'L'},
-        {"daemon",    no_argument,       0, 'D'},
-        {"version",   no_argument,       0, 'v'},
-        {"help",      no_argument,       0, 'h'},
-        {0, 0, 0, 0}
-    };
-    
-    int option_index = 0;
-    int c;
-    
-    while ((c = getopt_long(argc, argv, "c:d:l:L:Dvh", long_options, &option_index)) != -1) {
-        switch (c) {
-            case 'c':
-                g_config_file = optarg;
-                break;
-            case 'd':
-                g_data_dir = optarg;
-                break;
-            case 'l':
-                g_log_file = optarg;
-                break;
-            case 'L':
-                g_log_level = xsan_log_level_from_string(optarg);
-                break;
-            case 'D':
-                g_daemonize = true;
-                break;
-            case 'v':
-                g_version_only = true;
-                break;
-            case 'h':
-                print_usage(argv[0]);
-                return 0;
-            case '?':
-                print_usage(argv[0]);
-                return -1;
-            default:
-                print_usage(argv[0]);
-                return -1;
-        }
+    // Initialize our bdev subsystem wrapper
+    if (xsan_bdev_subsystem_init() != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to initialize XSAN bdev subsystem.");
+        xsan_spdk_manager_request_app_stop();
+        return;
     }
-    
-    if (g_version_only) {
-        print_version();
-        return 0;
-    }
-    
-    return 1;  /* 继续执行 */
-}
 
-/**
- * 设置日志系统
- */
-static int setup_logging(void)
-{
-    xsan_log_config_t log_config = {
-        .level = g_log_level,
-        .console_output = !g_daemonize,
-        .file_output = g_log_file != NULL,
-        .max_file_size = 100 * 1024 * 1024,  /* 100MB */
-        .max_file_count = 10
-    };
-    
-    if (g_log_file) {
-        strncpy(log_config.log_file, g_log_file, sizeof(log_config.log_file) - 1);
-    }
-    
-    xsan_error_t err = xsan_log_init(&log_config);
-    if (err != XSAN_OK) {
-        fprintf(stderr, "Failed to initialize logging: %s\n", xsan_error_string(err));
-        return -1;
-    }
-    
-    XSAN_LOG_INFO("XSAN node daemon starting...");
-    XSAN_LOG_INFO("Version: %s", xsan_get_version());
-    XSAN_LOG_INFO("Data directory: %s", g_data_dir);
-    if (g_config_file) {
-        XSAN_LOG_INFO("Configuration file: %s", g_config_file);
-    }
-    
-    return 0;
-}
+    XSAN_LOG_INFO("Listing available SPDK bdevs...");
+    xsan_bdev_info_t *bdev_list = NULL;
+    int bdev_count = 0;
+    xsan_error_t err = xsan_bdev_list_get_all(&bdev_list, &bdev_count);
 
-/**
- * 设置数据目录
- */
-static int setup_directories(void)
-{
-    struct stat st;
-    
-    /* 检查数据目录是否存在 */
-    if (stat(g_data_dir, &st) != 0) {
-        if (errno == ENOENT) {
-            XSAN_LOG_INFO("Creating data directory: %s", g_data_dir);
-            if (mkdir(g_data_dir, 0755) != 0) {
-                XSAN_LOG_ERROR("Failed to create data directory: %s", strerror(errno));
-                return -1;
+    if (err == XSAN_OK) {
+        XSAN_LOG_INFO("Found %d SPDK bdev(s):", bdev_count);
+        for (int i = 0; i < bdev_count; ++i) {
+            char uuid_formatted_str[SPDK_UUID_STRING_LEN];
+            spdk_uuid_fmt_lower(uuid_formatted_str, sizeof(uuid_formatted_str),
+                                (struct spdk_uuid*)&bdev_list[i].uuid.data[0]);
+
+            XSAN_LOG_INFO("  [%d] Name: '%s', Product: '%s', Size: %.2f GiB, UUID: %s, BlockSize: %u bytes",
+                          i,
+                          bdev_list[i].name,
+                          bdev_list[i].product_name,
+                          (double)bdev_list[i].capacity_bytes / (1024.0 * 1024.0 * 1024.0),
+                          uuid_formatted_str,
+                          bdev_list[i].block_size);
+
+            // Simple Read/Write Test on the first Malloc bdev found
+            if (strstr(bdev_list[i].name, "Malloc") != NULL && bdev_list[i].num_blocks > 0 && bdev_list[i].block_size > 0) {
+                XSAN_LOG_INFO("--- Performing R/W Test on '%s' ---", bdev_list[i].name);
+                uint32_t blk_size_test = bdev_list[i].block_size;
+                size_t bdev_align = xsan_bdev_get_buf_align(bdev_list[i].name);
+
+                void *write_buf = xsan_bdev_dma_malloc(blk_size_test, bdev_align);
+                void *read_buf = xsan_bdev_dma_malloc(blk_size_test, bdev_align);
+
+                if (write_buf && read_buf) {
+                    snprintf((char*)write_buf, blk_size_test, "XSAN R/W Test on %s! Block 0.", bdev_list[i].name);
+                    // Ensure the rest of the buffer is distinct for a robust test, e.g. fill with a pattern.
+                    for(size_t k=strlen((char*)write_buf); k<blk_size_test; ++k) ((char*)write_buf)[k] = (char)(k % 256);
+
+                    memset(read_buf, 0xAA, blk_size_test); // Fill read_buf to ensure it's overwritten
+
+                    XSAN_LOG_DEBUG("Writing 1 block (offset 0) to '%s'...", bdev_list[i].name);
+                    // Using use_internal_dma_alloc = false, as we've already allocated DMA-safe buffers
+                    err = xsan_bdev_write_sync(bdev_list[i].name, 0, 1, write_buf, blk_size_test, false);
+                    if (err == XSAN_OK) {
+                        XSAN_LOG_INFO("Write to '%s' successful.", bdev_list[i].name);
+                        XSAN_LOG_DEBUG("Reading 1 block (offset 0) from '%s'...", bdev_list[i].name);
+                        err = xsan_bdev_read_sync(bdev_list[i].name, 0, 1, read_buf, blk_size_test, false);
+                        if (err == XSAN_OK) {
+                            XSAN_LOG_INFO("Read from '%s' successful.", bdev_list[i].name);
+                            if (memcmp(write_buf, read_buf, blk_size_test) == 0) {
+                                XSAN_LOG_INFO("SUCCESS: R/W data verification for '%s' passed!", bdev_list[i].name);
+                            } else {
+                                XSAN_LOG_ERROR("FAILURE: R/W data verification for '%s' FAILED!", bdev_list[i].name);
+                                // Optionally log differing bytes for debug
+                            }
+                        } else {
+                            XSAN_LOG_ERROR("Read from '%s' failed: %s (code %d)", bdev_list[i].name, xsan_error_string(err), err);
+                        }
+                    } else {
+                        XSAN_LOG_ERROR("Write to '%s' failed: %s (code %d)", bdev_list[i].name, xsan_error_string(err), err);
+                    }
+                } else {
+                    XSAN_LOG_ERROR("Failed to allocate DMA buffers for R/W test on '%s'.", bdev_list[i].name);
+                }
+                if(write_buf) xsan_bdev_dma_free(write_buf);
+                if(read_buf) xsan_bdev_dma_free(read_buf);
+                XSAN_LOG_INFO("--- R/W Test on '%s' finished ---", bdev_list[i].name);
+                break; // Test only one Malloc bdev for now
             }
-        } else {
-            XSAN_LOG_ERROR("Failed to check data directory: %s", strerror(errno));
-            return -1;
         }
-    } else if (!S_ISDIR(st.st_mode)) {
-        XSAN_LOG_ERROR("Data directory is not a directory: %s", g_data_dir);
-        return -1;
+        xsan_bdev_list_free(bdev_list, bdev_count);
+    } else {
+        XSAN_LOG_ERROR("Failed to list SPDK bdevs: %s (code %d)", xsan_error_string(err), err);
     }
-    
-    /* 检查权限 */
-    if (access(g_data_dir, R_OK | W_OK) != 0) {
-        XSAN_LOG_ERROR("No read/write permission for data directory: %s", g_data_dir);
-        return -1;
-    }
-    
-    return 0;
+
+    xsan_bdev_subsystem_fini();
+
+    XSAN_LOG_INFO("XSAN SPDK application thread work complete. Requesting application stop.");
+    xsan_spdk_manager_request_app_stop(); // Signal SPDK framework to shut down
 }
 
-/**
- * 后台化进程
- */
-static int daemonize_process(void)
-{
-    if (!g_daemonize) {
-        return 0;
-    }
-    
-    XSAN_LOG_INFO("Daemonizing process...");
-    
-    /* 创建子进程 */
-    pid_t pid = fork();
-    if (pid < 0) {
-        XSAN_LOG_ERROR("Failed to fork: %s", strerror(errno));
-        return -1;
-    }
-    
-    if (pid > 0) {
-        /* 父进程退出 */
-        exit(0);
-    }
-    
-    /* 子进程继续 */
-    /* 创建新的会话 */
-    if (setsid() < 0) {
-        XSAN_LOG_ERROR("Failed to create new session: %s", strerror(errno));
-        return -1;
-    }
-    
-    /* 再次fork以确保不是会话组长 */
-    pid = fork();
-    if (pid < 0) {
-        XSAN_LOG_ERROR("Failed to fork again: %s", strerror(errno));
-        return -1;
-    }
-    
-    if (pid > 0) {
-        /* 父进程退出 */
-        exit(0);
-    }
-    
-    /* 改变工作目录 */
-    if (chdir("/") < 0) {
-        XSAN_LOG_ERROR("Failed to change directory: %s", strerror(errno));
-        return -1;
-    }
-    
-    /* 设置文件权限掩码 */
-    umask(0);
-    
-    /* 关闭标准输入输出 */
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-    
-    return 0;
-}
+int main(int argc, char **argv) {
+    xsan_log_config_t log_cfg = xsan_log_default_config();
+    log_cfg.level = XSAN_LOG_LEVEL_DEBUG; // Enable verbose logging for testing
+    // log_cfg.console_output = true; // Already default
+    xsan_log_init(&log_cfg);
 
-/**
- * 初始化各个模块
- */
-static int initialize_modules(void)
-{
-    XSAN_LOG_INFO("Initializing modules...");
-    
-    /* TODO: 初始化各个模块 */
-    /* 
-     * 1. 初始化存储模块
-     * 2. 初始化网络模块
-     * 3. 初始化集群模块
-     * 4. 初始化复制模块
-     * 5. 初始化策略模块
-     * 6. 初始化虚拟化模块
-     */
-    
-    XSAN_LOG_INFO("All modules initialized successfully");
-    return 0;
-}
+    XSAN_LOG_INFO("XSAN Node starting (main function)...");
 
-/**
- * 清理模块
- */
-static void cleanup_modules(void)
-{
-    XSAN_LOG_INFO("Cleaning up modules...");
-    
-    /* TODO: 清理各个模块 */
-    /* 按初始化的逆序清理 */
-    
-    XSAN_LOG_INFO("All modules cleaned up");
-}
+    const char *spdk_json_conf_file = NULL;
+    if (argc > 1) {
+        spdk_json_conf_file = argv[1];
+        XSAN_LOG_INFO("Using SPDK JSON configuration file: %s", spdk_json_conf_file);
+    } else {
+        XSAN_LOG_WARN("No SPDK JSON configuration file provided via command line arguments.");
+        XSAN_LOG_WARN("SPDK might not find bdevs unless auto-detected (e.g. NVMe) or created via RPC if enabled.");
+        XSAN_LOG_WARN("For testing with Malloc bdevs, create a JSON config like:");
+        XSAN_LOG_WARN("{\n  \"subsystems\": [\n    {\n      \"subsystem\": \"bdev\",\n      \"config\": [\n        {\n          \"method\": \"bdev_malloc_create\",\n          \"params\": {\n            \"name\": \"Malloc0\",\n            \"num_blocks\": 65536,\n            \"block_size\": 512\n          }\n        }\n      ]\n    }\n  ]\n}");
+    }
 
-/**
- * 主循环
- */
-static int main_loop(void)
-{
-    XSAN_LOG_INFO("Entering main loop...");
-    
-    while (!g_shutdown_requested) {
-        /* TODO: 主循环逻辑 */
-        /* 
-         * 1. 处理网络事件
-         * 2. 处理存储请求
-         * 3. 处理集群事件
-         * 4. 进行健康检查
-         */
-        
-        /* 暂时简单地睡眠 */
-        sleep(1);
+    // Initialize SPDK application options.
+    // Using "0x1" for reactor_mask means SPDK will try to use core 0.
+    // RPC is disabled for this simple test.
+    xsan_error_t err = xsan_spdk_manager_opts_init("xsan_node_main", spdk_json_conf_file, "0x1", false, NULL);
+    if (err != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to initialize SPDK manager options: %s (code %d)", xsan_error_string(err), err);
+        xsan_log_shutdown();
+        return EXIT_FAILURE;
     }
-    
-    XSAN_LOG_INFO("Main loop exited");
-    return 0;
-}
 
-/**
- * 主函数
- */
-int main(int argc, char *argv[])
-{
-    int ret = 0;
-    
-    /* 解析命令行参数 */
-    int parse_result = parse_arguments(argc, argv);
-    if (parse_result <= 0) {
-        return parse_result == 0 ? 0 : 1;
+    // Start the SPDK application. This function blocks until SPDK is stopped.
+    // xsan_node_main_spdk_thread_start will be called on an SPDK thread.
+    err = xsan_spdk_manager_start_app(xsan_node_main_spdk_thread_start, NULL /* argument for start_fn */);
+    if (err != XSAN_OK) {
+        XSAN_LOG_FATAL("xsan_spdk_manager_start_app returned with error: %s (code %d)", xsan_error_string(err), err);
+        // spdk_app_fini() is still needed for cleanup even if spdk_app_start fails after some point.
     }
-    
-    /* 设置日志系统 */
-    if (setup_logging() != 0) {
-        return 1;
-    }
-    
-    /* 设置信号处理器 */
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGHUP, signal_handler);
-    
-    /* 设置数据目录 */
-    if (setup_directories() != 0) {
-        ret = 1;
-        goto cleanup;
-    }
-    
-    /* 后台化进程 */
-    if (daemonize_process() != 0) {
-        ret = 1;
-        goto cleanup;
-    }
-    
-    /* 初始化模块 */
-    if (initialize_modules() != 0) {
-        ret = 1;
-        goto cleanup;
-    }
-    
-    /* 进入主循环 */
-    if (main_loop() != 0) {
-        ret = 1;
-    }
-    
-cleanup:
-    /* 清理模块 */
-    cleanup_modules();
-    
-    /* 关闭日志系统 */
-    XSAN_LOG_INFO("XSAN node daemon shutting down");
+
+    // Clean up SPDK resources. This is called after spdk_app_start has returned.
+    xsan_spdk_manager_app_fini();
+
+    XSAN_LOG_INFO("XSAN Node has shut down.");
     xsan_log_shutdown();
-    
-    return ret;
+
+    return (err == XSAN_OK) ? EXIT_SUCCESS : EXIT_FAILURE;
 }

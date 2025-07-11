@@ -17,12 +17,85 @@ include_directories(src/include)
 # 线程库
 find_package(Threads REQUIRED)
 
-# 只构建基础模块
+# Option to enable SPDK support
+option(XSAN_ENABLE_SPDK "Enable SPDK integration" ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Good for IDEs
+
+if(XSAN_ENABLE_SPDK)
+    message(STATUS "SPDK support is enabled for XSAN.")
+    find_package(PkgConfig REQUIRED)
+
+    set(SPDK_REQUIRED_MODULES
+        spdk_env_dpdk
+        spdk_log
+        spdk_util
+        spdk_thread
+        spdk_event      # Core event library (for spdk_app_*)
+        spdk_bdev
+    )
+    # Optional: spdk_rpc, spdk_jsonrpc, spdk_nvmf
+
+    set(XSAN_SPDK_INCLUDE_DIRS_INIT "")
+    set(XSAN_SPDK_LIBRARIES_INIT "")
+    set(XSAN_SPDK_LIBRARY_DIRS_INIT "")
+    set(XSAN_SPDK_CFLAGS_INIT "")
+
+    foreach(module ${SPDK_REQUIRED_MODULES})
+        pkg_search_module(SPDK_MODULE_${module} REQUIRED ${module}) # Use unique prefix per module
+        if(SPDK_MODULE_${module}_FOUND)
+            message(STATUS "Found SPDK module: ${module}")
+            list(APPEND XSAN_SPDK_INCLUDE_DIRS_INIT ${SPDK_MODULE_${module}_INCLUDE_DIRS})
+            list(APPEND XSAN_SPDK_LIBRARIES_INIT ${SPDK_MODULE_${module}_LIBRARIES})
+            # Some .pc files provide LDFLAGS which include -L and -l, others just LIBRARIES with full paths or -l
+            # PKG_CONFIG_PATH needs to be set correctly for pkg-config to find .pc files.
+            # If LIBRARIES are full paths, LIBRARY_DIRS might not be strictly needed for linking
+            # but can be useful for rpath or if LIBRARIES are just -lname.
+            list(APPEND XSAN_SPDK_LIBRARY_DIRS_INIT ${SPDK_MODULE_${module}_LIBRARY_DIRS})
+            list(APPEND XSAN_SPDK_CFLAGS_INIT ${SPDK_MODULE_${module}_CFLAGS_OTHER})
+        else()
+            message(FATAL_ERROR "Required SPDK module '${module}' not found by pkg-config. Check PKG_CONFIG_PATH.")
+        endif()
+    endforeach()
+
+    list(REMOVE_DUPLICATES XSAN_SPDK_INCLUDE_DIRS_INIT)
+    list(REMOVE_DUPLICATES XSAN_SPDK_LIBRARIES_INIT)
+    list(REMOVE_DUPLICATES XSAN_SPDK_LIBRARY_DIRS_INIT)
+    list(REMOVE_DUPLICATES XSAN_SPDK_CFLAGS_INIT)
+
+    # Set cache variables to pass to subdirectories, especially src/main/CMakeLists.txt
+    set(XSAN_SPDK_INCLUDE_DIRS ${XSAN_SPDK_INCLUDE_DIRS_INIT} CACHE INTERNAL "Aggregated SPDK Include Directories")
+    set(XSAN_SPDK_LIBRARIES ${XSAN_SPDK_LIBRARIES_INIT} CACHE INTERNAL "Aggregated SPDK Libraries")
+    set(XSAN_SPDK_LIBRARY_DIRS ${XSAN_SPDK_LIBRARY_DIRS_INIT} CACHE INTERNAL "Aggregated SPDK Library Directories")
+    set(XSAN_SPDK_CFLAGS ${XSAN_SPDK_CFLAGS_INIT} CACHE INTERNAL "Aggregated SPDK Compile Flags")
+
+    message(STATUS "SPDK Include Dirs: ${XSAN_SPDK_INCLUDE_DIRS}")
+    message(STATUS "SPDK Libraries: ${XSAN_SPDK_LIBRARIES}")
+    message(STATUS "SPDK Library Dirs: ${XSAN_SPDK_LIBRARY_DIRS}")
+    message(STATUS "SPDK CFLAGS: ${XSAN_SPDK_CFLAGS}")
+
+    # Apply CFLAGS and Include Dirs globally for simplicity, or apply per-target
+    include_directories(SYSTEM ${XSAN_SPDK_INCLUDE_DIRS})
+    add_compile_options(${XSAN_SPDK_CFLAGS})
+
+else()
+    message(STATUS "SPDK support is disabled for XSAN.")
+    # Ensure variables are defined as empty if SPDK is off, so src/main/CMakeLists.txt doesn't break
+    set(XSAN_SPDK_INCLUDE_DIRS "" CACHE INTERNAL "SPDK Include Directories")
+    set(XSAN_SPDK_LIBRARIES "" CACHE INTERNAL "SPDK Libraries")
+    set(XSAN_SPDK_LIBRARY_DIRS "" CACHE INTERNAL "SPDK Library Directories")
+    set(XSAN_SPDK_CFLAGS "" CACHE INTERNAL "SPDK Compile Flags")
+endif()
+
+# Add all relevant source directories now
 add_subdirectory(src/utils)
 add_subdirectory(src/common)
+add_subdirectory(src/network) # Added network
+add_subdirectory(src/core)    # Added core (for spdk_manager)
+add_subdirectory(src/bdev)    # Added bdev
+add_subdirectory(src/main)    # Main executable likely defined here
 add_subdirectory(tests)
 
-# 显示配置信息
+# Display configuration information
 message(STATUS "")
 message(STATUS "=== XSAN Configuration (Simplified) ===")
 message(STATUS "Version: ${PROJECT_VERSION}")

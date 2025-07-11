@@ -117,13 +117,16 @@ typedef enum {
     XSAN_ERROR_PROTOCOL_PAYLOAD_TOO_LARGE = -244, // Payload exceeds max allowed size
     XSAN_ERROR_PROTOCOL_MESSAGE_INCOMPLETE = -245, // Message appears truncated
 
+    /* Threading & Context Errors */
+    XSAN_ERROR_THREAD_CONTEXT = -260,   // Operation called from an incorrect thread context (e.g., non-SPDK thread for SPDK API)
+
 
     // XSAN_ERROR_MAX is a conceptual marker for the end of defined errors.
     // The actual count and range will be managed by the error string array in error.c
     // For array sizing, use a counter or ensure XSAN_ERROR_MAX is the last *positive* enum if switching scheme.
     // Given negative codes, the 'max' is actually the 'min' (most negative).
     // Let's define a specific last error for array sizing purposes if needed, or calculate it.
-    XSAN_ERROR_LAST_CODE_MARKER = -246 // Represents the boundary for known error codes
+    XSAN_ERROR_LAST_CODE_MARKER = -261 // Represents the boundary for known error codes
 } xsan_error_t;
 
 #endif /* XSAN_ERROR_H */

@@ -137,6 +137,9 @@ static void initialize_error_messages() {
     error_messages[abs(XSAN_ERROR_AUTHORIZATION_FAILED)] = "Authorization failed";
     error_messages[abs(XSAN_ERROR_ENCRYPTION_FAILED)] = "Encryption failed";
     error_messages[abs(XSAN_ERROR_DECRYPTION_FAILED)] = "Decryption failed";
+
+    // Threading & Context Errors
+    error_messages[abs(XSAN_ERROR_THREAD_CONTEXT)] = "Operation called from an incorrect thread context";
 }
 
 // Flag to ensure initialization happens once
