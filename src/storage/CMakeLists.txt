@@ -43,13 +43,23 @@ target_link_libraries(xsan_storage PUBLIC # Use PUBLIC to propagate interface in
     xsan_common     # For error types, list, hashtable, ringbuffer, (spdk/uuid.h via xsan_types.h)
     xsan_bdev       # disk_manager and volume_manager (via xsan_io) depend on xsan_bdev
     xsan_io         # volume_manager depends on xsan_io for async operations
+    xsan_metadata   # For using the RocksDB wrapper
     # xsan_network  # Only if storage directly does network ops, unlikely for disk/vol managers
-                    # Dependencies like LEVELDB_LIB and UUID_LIB should be conditional
-                    # or found via find_package by the modules that actually need them.
-                    # For now, keep them if metadata.c or other existing files require them.
-    ${LEVELDB_LIB}  # Assuming this is found elsewhere if metadata.c is used
-    ${UUID_LIB}     # Assuming this is found elsewhere (e.g. find_package(LibUUID) )
+
+    ${LEVELDB_LIB}  # This should be removed if we are using RocksDB via xsan_metadata
+                    # and if metadata.c (which might have used LevelDB) is no longer active.
+                    # For now, keep if other old files in XSAN_STORAGE_SOURCES might use it.
+                    # If metadata.c is removed, this should be removed.
+    ${UUID_LIB}     # For spdk_uuid_parse etc. if not provided by SPDK's own linking. Usually not needed separately.
+                    # SPDK itself should provide UUID functions.
 )
+
+if(XSAN_ENABLE_SPDK) # json-c is only used if SPDK and thus metadata persistence is on
+    # Link json-c if found by root CMakeLists.txt
+    # XSAN_JSON_C_LIBRARIES contains linker flags like -ljson-c or full paths.
+    target_link_libraries(xsan_storage PRIVATE ${XSAN_JSON_C_LIBRARIES})
+endif()
+
 
 # 设置编译属性
 set_target_properties(xsan_storage PROPERTIES
