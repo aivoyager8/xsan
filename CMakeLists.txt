@@ -33,6 +33,8 @@ if(XSAN_ENABLE_SPDK)
         spdk_event      # Core event library (for spdk_app_*, sock_group polling)
         spdk_net        # For spdk_net_framework and potentially sock implementations
         spdk_bdev
+        spdk_scsi       # For vhost-scsi target implementation
+        spdk_vhost      # For vhost library itself
     )
     # Optional: spdk_rpc, spdk_jsonrpc, spdk_nvmf, spdk_sock_posix (if explicit linking needed)
 
@@ -127,6 +129,7 @@ add_subdirectory(src/bdev)    # Added bdev
 add_subdirectory(src/io)      # Added io (for xsan_io)
 add_subdirectory(src/metadata) # Added metadata (for RocksDB store wrapper)
 add_subdirectory(src/storage) # Added storage (for disk_manager, volume_manager)
+add_subdirectory(src/vhost)   # Added vhost (for XSAN vbdev and vhost integration)
 add_subdirectory(src/main)    # Main executable likely defined here
 add_subdirectory(tests)
 
