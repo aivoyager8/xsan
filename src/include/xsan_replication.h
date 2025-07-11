@@ -60,8 +60,42 @@ typedef struct xsan_replicated_io_ctx {
     //    bool ack_received;
     //    xsan_error_t ack_status;
     // } remote_sends[XSAN_MAX_REPLICAS -1]; // If actual_replica_count > 1
-
+    // Consider adding a per-replica sub-context array if complex state per replica is needed.
 } xsan_replicated_io_ctx_t;
+
+
+/**
+ * @brief Context for coordinating a read operation that might try multiple replicas.
+ */
+typedef struct xsan_replica_read_coordinator_ctx {
+    struct xsan_volume *vol;            ///< Pointer to the volume being read (non-owning)
+    void *user_buffer;                  ///< User's original buffer to store read data
+    uint64_t logical_byte_offset;       ///< Original logical byte offset in the volume
+    uint64_t length_bytes;              ///< Original length of the I/O in bytes
+    // uint32_t volume_logical_block_size; ///< Volume's logical block size
+
+    xsan_user_io_completion_cb_t original_user_cb; ///< User's final callback
+    void *original_user_cb_arg;         ///< Argument for the user's callback
+
+    int current_replica_idx_to_try;     ///< Index into vol->replica_nodes[] for current attempt
+    // int total_replicas_in_volume;    // vol->actual_replica_count can be used
+
+    xsan_error_t last_attempt_status;   ///< Status from the most recent read attempt
+
+    uint64_t transaction_id;            ///< Transaction ID for remote read REQ/RESP matching
+
+    // For reads from remote replicas, data is first read into this DMA buffer,
+    // then copied to user_buffer in the final completion step.
+    void *internal_dma_buffer;          ///< DMA buffer for receiving data from remote replica
+    size_t internal_dma_buffer_size;    ///< Size of the allocated internal_dma_buffer
+    bool internal_dma_buffer_allocated; ///< True if internal_dma_buffer was allocated by this context
+
+    // Context for the current remote operation (connect and send REQ)
+    // This reuses the per-replica op context structure, but only one is active at a time for reads.
+    xsan_per_replica_op_ctx_t *current_remote_op_ctx;
+
+    // Could also store a list of already tried replica indices to avoid retrying the same failed one immediately.
+} xsan_replica_read_coordinator_ctx_t;
 
 
 /**
@@ -93,6 +127,37 @@ xsan_replicated_io_ctx_t *xsan_replicated_io_ctx_create(
  * @param rep_io_ctx The context to free.
  */
 void xsan_replicated_io_ctx_free(xsan_replicated_io_ctx_t *rep_io_ctx);
+
+
+/**
+ * @brief Allocates and initializes a replica read coordinator context.
+ *
+ * @param vol Pointer to the volume to read from.
+ * @param user_buffer User's buffer for the read data.
+ * @param offset_bytes Byte offset within the volume.
+ * @param length_bytes Number of bytes to read.
+ * @param original_user_cb User's final completion callback.
+ * @param original_user_cb_arg Argument for the user's callback.
+ * @param transaction_id Transaction ID for potential remote read requests.
+ * @return Pointer to an allocated xsan_replica_read_coordinator_ctx_t, or NULL on failure.
+ */
+xsan_replica_read_coordinator_ctx_t *xsan_replica_read_coordinator_ctx_create(
+    struct xsan_volume *vol,
+    void *user_buffer,
+    uint64_t offset_bytes,
+    uint64_t length_bytes,
+    xsan_user_io_completion_cb_t original_user_cb,
+    void *original_user_cb_arg,
+    uint64_t transaction_id
+);
+
+/**
+ * @brief Frees a replica read coordinator context.
+ * Also frees any internally allocated DMA buffer.
+ *
+ * @param read_coord_ctx The context to free.
+ */
+void xsan_replica_read_coordinator_ctx_free(xsan_replica_read_coordinator_ctx_t *read_coord_ctx);
 
 
 #ifdef __cplusplus
