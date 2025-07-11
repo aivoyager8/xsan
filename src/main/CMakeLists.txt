@@ -1,56 +1,77 @@
-# XSAN Main Programs
-# 主程序构建 - 依赖所有模块
-
-# 收集所有模块的库
-set(XSAN_ALL_LIBRARIES
-    xsan_utils
-    xsan_common
-    xsan_network
-    xsan_storage
-    xsan_cluster
-    xsan_replication
-    xsan_policy
-    xsan_virtualization
+# Define the main executable
+add_executable(xsan_node
+    xsan_node.c
+    xsan_cli.c  # Assuming this is part of the main executable
 )
 
-# 主程序 - 节点守护进程
-add_executable(xsan-node xsan_node.c)
-target_link_libraries(xsan-node ${XSAN_ALL_LIBRARIES})
-
-# 命令行工具
-add_executable(xsan-cli xsan_cli.c)
-target_link_libraries(xsan-cli ${XSAN_ALL_LIBRARIES})
-
-# 调试工具
-add_executable(xsan-debug xsan_debug.c)
-target_link_libraries(xsan-debug ${XSAN_ALL_LIBRARIES})
-
-# 设置包含目录
-target_include_directories(xsan-node PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src/include
+# Add XSAN include directories
+target_include_directories(xsan_node PUBLIC
+    ${CMAKE_SOURCE_DIR}/include     # For xsan.h, xsan_types.h
+    ${CMAKE_SOURCE_DIR}/src/include # For all module headers (xsan_spdk_manager.h, xsan_bdev.h, etc.)
 )
 
-target_include_directories(xsan-cli PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src/include
+# Link against our XSAN static libraries
+target_link_libraries(xsan_node PRIVATE
+    xsan_core       # For SPDK management
+    xsan_bdev       # For BDEV operations
+    xsan_network    # For socket, event_loop, protocol
+    xsan_common     # For error, version, common data structures
+    xsan_utils      # For config, log, memory, string_utils
+    Threads::Threads # From find_package(Threads REQUIRED) in root
 )
 
-target_include_directories(xsan-debug PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/src/include
-)
+# Conditionally link SPDK libraries and apply SPDK specific settings
+if(XSAN_ENABLE_SPDK)
+    message(STATUS "Configuring xsan_node target with SPDK support.")
+    # XSAN_SPDK_INCLUDE_DIRS are already added globally in the root CMakeLists.txt via include_directories(SYSTEM ...)
+    # XSAN_SPDK_CFLAGS are already added globally in the root CMakeLists.txt via add_compile_options(...)
 
-# 安装目标
-install(TARGETS xsan-node xsan-cli xsan-debug
-    RUNTIME DESTINATION bin
-)
+    # Add SPDK library directories for linking (e.g., -L/path/to/spdk/lib)
+    # These are from XSAN_SPDK_LIBRARY_DIRS set in the root CMakeLists.txt
+    target_link_directories(xsan_node PRIVATE ${XSAN_SPDK_LIBRARY_DIRS})
 
-# 创建 XSAN 总库 (用于外部链接)
-add_library(xsan STATIC)
-target_link_libraries(xsan ${XSAN_ALL_LIBRARIES})
+    # Link against the SPDK libraries (e.g., -lspdk_event -lspdk_bdev ...)
+    # These are from XSAN_SPDK_LIBRARIES set in the root CMakeLists.txt
+    target_link_libraries(xsan_node PRIVATE ${XSAN_SPDK_LIBRARIES})
 
-# 安装开发库
-install(TARGETS xsan ${XSAN_ALL_LIBRARIES}
-    ARCHIVE DESTINATION lib
-)
+    # SPDK (via DPDK) often requires additional system libraries.
+    # Many of these should be pulled in by SPDK's .pc files if they are comprehensive.
+    # Common ones include: numa, dl, m, rt (already added pthread via Threads::Threads)
+    # If not automatically included by SPDK's .pc files, add them here.
+    # Check SPDK documentation for full list of dependencies for applications.
+    # For example, DPDK might need: -lnuma -ldl -lm -lpthread (-lrt for older systems)
+    # We can try adding some common ones if pkg-config doesn't cover them all.
+    # However, a well-formed pkg-config setup for SPDK should handle this.
+    # Let's add numa explicitly as it's a common one for DPDK.
+    find_package(Numa) # Check if Numa development libraries are installed
+    if(NUMA_FOUND)
+        target_link_libraries(xsan_node PRIVATE ${NUMA_LIBRARIES})
+        message(STATUS "Linking with NUMA library: ${NUMA_LIBRARIES}")
+    else()
+        message(WARNING "NUMA library not found. SPDK performance might be affected or build might fail if SPDK requires it directly.")
+    endif()
+
+    # Other typical dependencies that SPDK's pkg-config might or might not list as transitive.
+    # Most modern pkg-config setups for SPDK should handle these.
+    # target_link_libraries(xsan_node PRIVATE dl m)
+
+
+    # If SPDK requires specific C standards or features not enabled globally:
+    # target_compile_features(xsan_node PRIVATE c_std_11) # Example if needed
+
+    # If SPDK static libraries require --whole-archive, it's complex with pkg-config.
+    # SPDK's pkg-config files for static linking *should* ideally include these flags
+    # in LIBS_PRIVATE or similar. If not, manual adjustment is needed.
+    # Example:
+    # target_link_libraries(xsan_node PRIVATE -Wl,--whole-archive spdk_some_static_lib -Wl,--no-whole-archive)
+    # This is highly dependent on the SPDK build and installation.
+    # For now, assume pkg-config handles it.
+
+    message(STATUS "xsan_node target configured to link with SPDK.")
+else()
+    message(STATUS "xsan_node target configured WITHOUT SPDK support.")
+endif()
+
+# Installation (optional example)
+# install(TARGETS xsan_node DESTINATION bin)
+# install(FILES ${CMAKE_SOURCE_DIR}/config/xsan_default.conf DESTINATION etc/xsan)
