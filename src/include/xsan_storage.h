@@ -139,18 +139,28 @@ typedef struct xsan_volume {
     xsan_volume_id_t id;                       ///< Unique identifier for this logical volume
     char name[XSAN_MAX_NAME_LEN];              ///< User-defined name for the volume
 
-    uint64_t size_bytes;                       ///< Total provisioned size of the volume
-    xsan_storage_state_t state;                ///< Current state of the volume
+    uint64_t size_bytes;                       ///< Total provisioned size of the volume in bytes
+    uint32_t block_size_bytes;                 ///< Logical block size exposed by this volume (e.g., 512, 4096)
+    uint64_t num_blocks;                       ///< Total number of logical blocks (size_bytes / block_size_bytes)
 
-    // Mapping to storage resources
-    xsan_group_id_t source_group_id;           ///< ID of the primary disk group providing storage
-    // xsan_policy_id_t policy_id;             // Storage policy applied (replication, QoS, etc.)
+    xsan_storage_state_t state;                ///< Current state of the volume (e.g., ONLINE, CREATING, DELETED)
 
-    // More attributes: thin/thick provisioned, snapshots, etc.
+    xsan_group_id_t source_group_id;           ///< ID of the disk group providing storage for this volume
 
-    // Linkage for volume manager's internal list
-    struct xsan_volume *next;
-    struct xsan_volume *prev;
+    bool thin_provisioned;                     ///< True if this is a thin-provisioned volume
+    uint64_t allocated_bytes;                  ///< For thin-provisioned volumes, actual bytes allocated from the group
+                                               ///< For thick-provisioned, this would equal size_bytes after creation.
+
+    // xsan_policy_id_t policy_id;             // Future: Storage policy applied (replication, QoS, etc.)
+    // time_t creation_time;
+    // xsan_snapshot_id_t parent_snapshot_id;  // Future: For snapshots/clones
+
+    // Linkage for volume manager's internal list (managed by xsan_list_t)
+    struct xsan_volume *next;                  // Used if xsan_list_t nodes store xsan_volume_t directly
+    struct xsan_volume *prev;                  // Or, xsan_list_t stores void* and these are not needed here.
+                                               // Let's assume xsan_list stores void* to xsan_volume_t,
+                                               // so these next/prev pointers are not strictly needed in xsan_volume_t itself.
+                                               // Removing them for cleaner struct if list stores pointers.
 } xsan_volume_t;
 
 
