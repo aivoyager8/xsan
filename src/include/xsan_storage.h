@@ -11,9 +11,26 @@ extern "C" {
 #endif
 
 // --- Type Definitions for IDs ---
+typedef xsan_uuid_t xsan_node_id_t;       // Unique identifier for a node in the cluster
 typedef xsan_uuid_t xsan_disk_id_t;       // Using UUID for unique disk identification
 typedef xsan_uuid_t xsan_group_id_t;      // Using UUID for unique disk group identification
-typedef xsan_uuid_t xsan_volume_id_t;     // Using UUID for unique logical volume identification (forward thinking)
+typedef xsan_uuid_t xsan_volume_id_t;     // Using UUID for unique logical volume identification
+
+// --- Constants ---
+#define XSAN_MAX_REPLICAS 3               // Maximum number of replicas for a volume (e.g., FTT=2 -> 3 replicas)
+
+// --- Structures for Replication ---
+/**
+ * @brief Describes the location and connection information for a volume replica.
+ */
+typedef struct {
+    xsan_node_id_t node_id;                     ///< ID of the node hosting this replica
+    char node_ip_addr[INET6_ADDRSTRLEN];        ///< IP address of the replica node for communication
+    uint16_t node_comm_port;                    ///< Communication port on the replica node
+    // char target_on_replica[XSAN_MAX_NAME_LEN]; ///< Optional: Specific storage target name on replica node (e.g. bdev name)
+                                                ///< If not used, replica node determines placement based on volume_id.
+} xsan_replica_location_t;
+
 
 // --- Enumerations for Storage Entities ---
 
@@ -159,12 +176,19 @@ typedef struct xsan_volume {
     // time_t creation_time;
     // xsan_snapshot_id_t parent_snapshot_id;  // Future: For snapshots/clones
 
-    // Linkage for volume manager's internal list (managed by xsan_list_t)
-    struct xsan_volume *next;                  // Used if xsan_list_t nodes store xsan_volume_t directly
-    struct xsan_volume *prev;                  // Or, xsan_list_t stores void* and these are not needed here.
-                                               // Let's assume xsan_list stores void* to xsan_volume_t,
-                                               // so these next/prev pointers are not strictly needed in xsan_volume_t itself.
-                                               // Removing them for cleaner struct if list stores pointers.
+    // xsan_policy_id_t policy_id;             // Future: Storage policy applied (replication, QoS, etc.)
+    // time_t creation_time;
+    // xsan_snapshot_id_t parent_snapshot_id;  // Future: For snapshots/clones
+
+    // Replication specific fields
+    uint32_t FTT;                               ///< Failures To Tolerate (e.g., 0, 1, 2)
+                                                ///< Number of data replicas = FTT + 1.
+    uint32_t actual_replica_count;              ///< Actual number of replicas configured/active for this volume.
+                                                ///< This might be less than FTT+1 if not enough resources.
+    xsan_replica_location_t replica_nodes[XSAN_MAX_REPLICAS]; ///< Information about nodes holding replicas.
+                                                              ///< replica_nodes[0] is often the primary/local.
+
+    // next/prev pointers are not part of the data structure if xsan_list stores void*
 } xsan_volume_t;
 
 

@@ -61,6 +61,7 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm,
                                 xsan_group_id_t group_id,
                                 uint32_t logical_block_size_bytes,
                                 bool thin_provisioned,
+                                uint32_t ftt, // Failures To Tolerate
                                 xsan_volume_id_t *new_volume_id_out);
 
 /**
