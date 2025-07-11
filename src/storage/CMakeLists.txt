@@ -41,7 +41,8 @@ target_include_directories(xsan_storage PUBLIC
 target_link_libraries(xsan_storage PUBLIC # Use PUBLIC to propagate interface includes from dependencies
     xsan_utils      # For logging, memory, string utils
     xsan_common     # For error types, list, hashtable, ringbuffer, (spdk/uuid.h via xsan_types.h)
-    xsan_bdev       # disk_manager depends on xsan_bdev
+    xsan_bdev       # disk_manager and volume_manager (via xsan_io) depend on xsan_bdev
+    xsan_io         # volume_manager depends on xsan_io for async operations
     # xsan_network  # Only if storage directly does network ops, unlikely for disk/vol managers
                     # Dependencies like LEVELDB_LIB and UUID_LIB should be conditional
                     # or found via find_package by the modules that actually need them.

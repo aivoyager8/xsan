@@ -135,7 +135,56 @@ xsan_error_t xsan_volume_map_lba_to_physical(xsan_volume_manager_t *vm,
                                              xsan_volume_id_t volume_id,
                                              uint64_t logical_block_idx,
                                              xsan_disk_id_t *out_disk_id,
-                                             uint64_t *out_physical_block_idx);
+                                             uint64_t *out_physical_block_idx,
+                                             uint32_t *out_physical_block_size); // Also return physical block size
+
+/**
+ * @brief Reads data asynchronously from a logical volume.
+ *
+ * @param vm The volume manager instance.
+ * @param volume_id The ID of the volume to read from.
+ * @param logical_byte_offset The starting byte offset within the logical volume.
+ * @param length_bytes The number of bytes to read.
+ * @param user_buf The buffer where the read data will be stored.
+ *                 This buffer might be used directly if DMA-safe and aligned, or data
+ *                 might be copied into it from an internal DMA buffer.
+ * @param user_cb The user's completion callback function.
+ * @param user_cb_arg Argument for the user's callback.
+ * @return XSAN_OK if the read operation was successfully submitted.
+ *         An xsan_error_t code on failure (e.g., volume not found, invalid params, submission error).
+ *         The actual I/O result is delivered via the user_cb.
+ */
+xsan_error_t xsan_volume_read_async(xsan_volume_manager_t *vm,
+                                    xsan_volume_id_t volume_id,
+                                    uint64_t logical_byte_offset,
+                                    uint64_t length_bytes,
+                                    void *user_buf,
+                                    xsan_user_io_completion_cb_t user_cb,
+                                    void *user_cb_arg);
+
+/**
+ * @brief Writes data asynchronously to a logical volume.
+ *
+ * @param vm The volume manager instance.
+ * @param volume_id The ID of the volume to write to.
+ * @param logical_byte_offset The starting byte offset within the logical volume.
+ * @param length_bytes The number of bytes to write.
+ * @param user_buf The buffer containing the data to write.
+ *                 This buffer might be used directly or data copied from it to an internal DMA buffer.
+ * @param user_cb The user's completion callback function.
+ * @param user_cb_arg Argument for the user's callback.
+ * @return XSAN_OK if the write operation was successfully submitted.
+ *         An xsan_error_t code on failure.
+ *         The actual I/O result is delivered via the user_cb.
+ */
+xsan_error_t xsan_volume_write_async(xsan_volume_manager_t *vm,
+                                     xsan_volume_id_t volume_id,
+                                     uint64_t logical_byte_offset,
+                                     uint64_t length_bytes,
+                                     const void *user_buf, // const for write
+                                     xsan_user_io_completion_cb_t user_cb,
+                                     void *user_cb_arg);
+
 
 // Potentially add functions for resizing volumes, snapshots, etc. in the future.
 

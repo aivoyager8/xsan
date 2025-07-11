@@ -89,9 +89,13 @@ typedef struct xsan_disk {
     uint32_t optimal_io_boundary_blocks;       ///< Optimal I/O boundary in blocks
     bool has_write_cache;                      ///< True if write cache is enabled
 
+    struct spdk_bdev_desc *bdev_descriptor;    ///< SPDK bdev descriptor, opened by disk_manager
+                                               ///< NULL if not opened or could not be opened.
+
     // Linkage for disk manager's internal list (example, actual list mgmt may differ)
-    struct xsan_disk *next;
-    struct xsan_disk *prev;
+    // These are not needed if xsan_list stores void* to xsan_disk_t instances.
+    // struct xsan_disk *next;
+    // struct xsan_disk *prev;
 
     // Runtime information (optional, could be managed elsewhere)
     // uint64_t used_bytes;
