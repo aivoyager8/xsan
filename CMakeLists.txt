@@ -77,8 +77,39 @@ if(XSAN_ENABLE_SPDK)
     include_directories(SYSTEM ${XSAN_SPDK_INCLUDE_DIRS})
     add_compile_options(${XSAN_SPDK_CFLAGS})
 
+    # --- Find RocksDB (for C API) ---
+    pkg_search_module(ROCKSDB REQUIRED rocksdb)
+    if(ROCKSDB_FOUND)
+        message(STATUS "Found RocksDB: ${ROCKSDB_LIBRARIES}")
+        message(STATUS "RocksDB Include Dirs: ${ROCKSDB_INCLUDE_DIRS}")
+        # RocksDB C API typically just needs the main include dir.
+        # The library itself might be C++, so C++ linker deps might be needed.
+        set(XSAN_ROCKSDB_INCLUDE_DIRS ${ROCKSDB_INCLUDE_DIRS} CACHE INTERNAL "RocksDB Include Directories")
+        set(XSAN_ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} CACHE INTERNAL "RocksDB Libraries")
+        set(XSAN_ROCKSDB_LIBRARY_DIRS ${ROCKSDB_LIBRARY_DIRS} CACHE INTERNAL "RocksDB Library Directories")
+        include_directories(SYSTEM ${XSAN_ROCKSDB_INCLUDE_DIRS})
+        # RocksDB often requires linking against stdc++ if its C API is a wrapper around C++ core
+        # This will be handled at the target_link_libraries for the executable or specific lib using it.
+    else()
+        message(FATAL_ERROR "RocksDB (C API) not found by pkg-config. Please install RocksDB with C API support.")
+    endif()
+
+    # --- Find json-c ---
+    pkg_search_module(JSON_C REQUIRED json-c)
+    if(JSON_C_FOUND)
+        message(STATUS "Found json-c: ${JSON_C_LIBRARIES}")
+        message(STATUS "json-c Include Dirs: ${JSON_C_INCLUDE_DIRS}")
+        set(XSAN_JSON_C_INCLUDE_DIRS ${JSON_C_INCLUDE_DIRS} CACHE INTERNAL "json-c Include Directories")
+        set(XSAN_JSON_C_LIBRARIES ${JSON_C_LIBRARIES} CACHE INTERNAL "json-c Libraries")
+        set(XSAN_JSON_C_LIBRARY_DIRS ${JSON_C_LIBRARY_DIRS} CACHE INTERNAL "json-c Library Directories")
+        include_directories(SYSTEM ${XSAN_JSON_C_INCLUDE_DIRS})
+    else()
+        message(FATAL_ERROR "json-c library not found by pkg-config. Please install json-c.")
+    endif()
+
 else()
     message(STATUS "SPDK support is disabled for XSAN.")
+    message(STATUS "RocksDB and json-c integration will also be skipped as they are primarily for SPDK-based metadata.")
     # Ensure variables are defined as empty if SPDK is off, so src/main/CMakeLists.txt doesn't break
     set(XSAN_SPDK_INCLUDE_DIRS "" CACHE INTERNAL "SPDK Include Directories")
     set(XSAN_SPDK_LIBRARIES "" CACHE INTERNAL "SPDK Libraries")
@@ -93,6 +124,7 @@ add_subdirectory(src/network) # Added network
 add_subdirectory(src/core)    # Added core (for spdk_manager)
 add_subdirectory(src/bdev)    # Added bdev
 add_subdirectory(src/io)      # Added io (for xsan_io)
+add_subdirectory(src/metadata) # Added metadata (for RocksDB store wrapper)
 add_subdirectory(src/storage) # Added storage (for disk_manager, volume_manager)
 add_subdirectory(src/main)    # Main executable likely defined here
 add_subdirectory(tests)
