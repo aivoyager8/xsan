@@ -30,20 +30,8 @@ typedef struct {
 #define XSAN_BLOCK_SIZE 4096
 #define XSAN_DEFAULT_REPLICAS 2
 
-/* Error codes - use the detailed ones from xsan_error.h */
-typedef enum {
-    XSAN_OK = 0,
-    XSAN_ERROR_GENERIC = -1,
-    XSAN_ERROR_INVALID_PARAM = -2,
-    XSAN_ERROR_OUT_OF_MEMORY = -3,
-    XSAN_ERROR_IO = -4,
-    XSAN_ERROR_NETWORK = -5,
-    XSAN_ERROR_NOT_FOUND = -6,
-    XSAN_ERROR_TIMEOUT = -7,
-    XSAN_ERROR_CLUSTER = -8,
-    XSAN_ERROR_STORAGE = -9,
-    XSAN_ERROR_REPLICATION = -10
-} xsan_error_t;
+/* Error codes are now defined in xsan_error.h */
+#include "xsan_error.h" /* For xsan_error_t and detailed error codes */
 
 /* Node states */
 typedef enum {
