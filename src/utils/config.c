@@ -1,12 +1,13 @@
+#include <spdk/uuid.h>
 /**
  * XSAN 配置管理模块实现
  * 
  * 提供配置文件解析和配置参数管理功能
  */
 
-#include "xsan_config.h"
 #include "xsan_memory.h"
 #include "xsan_config.h"
+#include <spdk/uuid.h>
 #include "xsan_memory.h"
 #include "xsan_string_utils.h"
 #include "xsan_log.h"
@@ -20,6 +21,7 @@
 #include <time.h>
 #include <errno.h>
 #include <unistd.h>
+#include <spdk/uuid.h>
 
 /* 默认配置值 */
 #define DEFAULT_PORT                    8080

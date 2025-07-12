@@ -26,6 +26,7 @@ typedef enum {
     XSAN_ERROR_RESOURCE_BUSY = -11,     // Resource is currently busy/locked
     XSAN_ERROR_INTERRUPTED = -12,       // Operation was interrupted
     XSAN_ERROR_ALREADY_EXISTS = -13,    // Item or resource already exists
+    XSAN_ERROR_NOT_INITIALIZED = -14,   // Resource/module not initialized
 
     /* File System & Disk Errors */
     XSAN_ERROR_FILE_NOT_FOUND = -20,    // Specific to files

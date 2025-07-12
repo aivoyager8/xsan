@@ -1,3 +1,9 @@
+#ifndef XSAN_MAX_NAME_LEN
+#define XSAN_MAX_NAME_LEN 128
+#endif
+#ifndef XSAN_MAX_NAME_LEN
+#define XSAN_MAX_NAME_LEN 128
+#endif
 /**
  * XSAN 配置管理模块
  * 

@@ -77,7 +77,6 @@ static struct {
 
 static int _xsan_comm_poller_fn(void *arg);
 static void _xsan_comm_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock);
-static void _xsan_client_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock);
 static void _process_received_data_for_connection(xsan_connection_ctx_t *conn_ctx);
 static void _add_connection_to_active_list(xsan_connection_ctx_t *conn_ctx);
 static void _remove_connection_from_active_list(xsan_connection_ctx_t *conn_ctx);
@@ -114,11 +113,8 @@ xsan_error_t xsan_node_comm_init(const char *listen_ip, uint16_t listen_port,
 
     if (listen_ip && listen_port > 0) {
         struct spdk_sock_opts opts; memset(&opts, 0, sizeof(opts));
-        opts.is_server = true;
-        opts.cb_fn = _xsan_comm_sock_event_callback; // Listener uses the main callback
-        opts.cb_arg = NULL; // Listener itself doesn't have a conn_ctx; accepted sockets will.
-        opts.sock_group = g_node_comm_ctx.sock_group_on_reactor;
-        g_node_comm_ctx.listener_sock = spdk_sock_listen(listen_ip, (int)listen_port, &opts);
+        opts.opts_size = sizeof(struct spdk_sock_opts);
+        g_node_comm_ctx.listener_sock = spdk_sock_listen_ext(listen_ip, (int)listen_port, NULL, &opts);
         if (!g_node_comm_ctx.listener_sock) { XSAN_LOG_ERROR("Failed SPDK listen on %s:%u. Errno: %d (%s)", listen_ip, listen_port, errno, strerror(errno)); pthread_mutex_destroy(&g_node_comm_ctx.active_connections_lock); return XSAN_ERROR_NETWORK; }
         xsan_strcpy_safe(g_node_comm_ctx.module_listen_ip, listen_ip, INET6_ADDRSTRLEN);
         g_node_comm_ctx.module_listen_port = listen_port;
@@ -254,30 +250,21 @@ static void _cleanup_and_free_connection_ctx(xsan_connection_ctx_t *conn_ctx, bo
 static void _xsan_comm_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock) {
     (void)group;
     xsan_connection_ctx_t *conn_ctx = (xsan_connection_ctx_t *)cb_arg; // This is now always xsan_connection_ctx_t
-    int event_type = spdk_sock_get_last_event_type(sock);
 
     if (sock == g_node_comm_ctx.listener_sock) {
-        if (event_type == SPDK_SOCK_EVENT_INCOMING_CONNECTION) {
-            XSAN_LOG_INFO("Incoming connection on listener socket.");
-            struct spdk_sock_opts opts; memset(&opts, 0, sizeof(opts));
-            opts.cb_fn = _xsan_comm_sock_event_callback;
-            opts.sock_group = g_node_comm_ctx.sock_group_on_reactor;
-            // opts.cb_arg will be set after _create_connection_ctx
-
-            struct spdk_sock *new_data_sock = spdk_sock_accept(g_node_comm_ctx.listener_sock, &opts);
-            if (new_data_sock) {
-                xsan_connection_ctx_t *new_conn_ctx = _create_connection_ctx(new_data_sock,
-                                                                           g_node_comm_ctx.global_app_msg_handler_cb,
-                                                                           g_node_comm_ctx.global_app_msg_handler_cb_arg);
-                if (new_conn_ctx) {
-                     spdk_sock_set_cb_arg(new_data_sock, new_conn_ctx);
-                    _add_connection_to_active_list(new_conn_ctx);
-                } else {
-                    XSAN_LOG_ERROR("Failed to create conn_ctx for accepted socket. Closing.");
-                    spdk_sock_close(&new_data_sock);
-                }
-            } else { XSAN_LOG_ERROR("spdk_sock_accept failed. Errno: %d (%s)", errno, strerror(errno)); }
-        } else { XSAN_LOG_WARN("Unexpected event %d on listener socket.", event_type); }
+        XSAN_LOG_INFO("Incoming connection on listener socket.");
+        struct spdk_sock *new_data_sock = spdk_sock_accept(g_node_comm_ctx.listener_sock);
+        if (new_data_sock) {
+            xsan_connection_ctx_t *new_conn_ctx = _create_connection_ctx(new_data_sock,
+                                                                       g_node_comm_ctx.global_app_msg_handler_cb,
+                                                                       g_node_comm_ctx.global_app_msg_handler_cb_arg);
+            if (new_conn_ctx) {
+                _add_connection_to_active_list(new_conn_ctx);
+            } else {
+                XSAN_LOG_ERROR("Failed to create conn_ctx for accepted socket. Closing.");
+                spdk_sock_close(&new_data_sock);
+            }
+        } else { XSAN_LOG_ERROR("spdk_sock_accept failed. Errno: %d (%s)", errno, strerror(errno)); }
         return;
     }
 
@@ -286,29 +273,8 @@ static void _xsan_comm_sock_event_callback(void *cb_arg, struct spdk_sock_group 
         return;
     }
 
-    XSAN_LOG_DEBUG("Socket event on %s (sock %p), type %d", conn_ctx->peer_addr_str, sock, event_type);
-    switch (event_type) {
-        case SPDK_SOCK_EVENT_RECV:
-            _process_received_data_for_connection(conn_ctx);
-            break;
-        case SPDK_SOCK_EVENT_HUP:
-        case SPDK_SOCK_EVENT_ERR:
-            XSAN_LOG_INFO("Connection %s closed or error. Event: %d, errno: %d (%s)",
-                          conn_ctx->peer_addr_str, event_type, errno, strerror(errno));
-            _remove_connection_from_active_list(conn_ctx);
-            _cleanup_and_free_connection_ctx(conn_ctx, false);
-            break;
-        case SPDK_SOCK_EVENT_WRITE_COMPLETE:
-            if (conn_ctx->current_send_cb) {
-                XSAN_LOG_DEBUG("SPDK_SOCK_EVENT_WRITE_COMPLETE for %s", conn_ctx->peer_addr_str);
-                conn_ctx->current_send_cb(0, conn_ctx->current_send_cb_arg);
-                conn_ctx->current_send_cb = NULL;
-            }
-            break;
-        default:
-            XSAN_LOG_WARN("Unhandled SPDK socket event type %d for %s", event_type, conn_ctx->peer_addr_str);
-            break;
-    }
+    XSAN_LOG_DEBUG("Socket event on %s (sock %p)", conn_ctx->peer_addr_str, sock);
+    // 事件处理逻辑改为在 poller中处理 socket 状态
 }
 
 static void _process_received_data_for_connection(xsan_connection_ctx_t *conn_ctx) {
@@ -430,12 +396,9 @@ xsan_error_t xsan_node_comm_connect(const char *target_ip, uint16_t target_port,
 
     struct spdk_sock_opts opts;
     memset(&opts, 0, sizeof(opts));
-    opts.is_server = false;
-    opts.cb_fn = _xsan_client_sock_event_callback;
-    opts.cb_arg = pending_op;
-    opts.sock_group = g_node_comm_ctx.sock_group_on_reactor;
-
-    pending_op->sock_in_progress = spdk_sock_connect(target_ip, (int)target_port, &opts);
+    opts.opts_size = sizeof(struct spdk_sock_opts); // 必须设置
+    // 其他参数可按需设置，如 opts.priority/opts.zcopy 等
+    pending_op->sock_in_progress = spdk_sock_connect_ext(target_ip, (int)target_port, NULL, &opts);
     if (!pending_op->sock_in_progress) {
         int err_no = errno;
         XSAN_LOG_ERROR("spdk_sock_connect call failed immediately for %s. Errno: %d (%s)",
@@ -448,56 +411,6 @@ xsan_error_t xsan_node_comm_connect(const char *target_ip, uint16_t target_port,
     XSAN_LOG_DEBUG("SPDK connect initiated for %s, client sock %p, cb_arg (pending_op) %p",
                    pending_op->target_addr_str_for_log, pending_op->sock_in_progress, pending_op);
     return XSAN_OK;
-}
-
-static void _xsan_client_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock) {
-    (void)group; // Usually not needed if all sockets in the same group
-    xsan_pending_connect_op_t *pending_op = (xsan_pending_connect_op_t *)cb_arg;
-    int event_type = spdk_sock_get_last_event_type(sock);
-    int s_errno = spdk_sock_get_error(sock);
-
-    if (!pending_op || pending_op->sock_in_progress != sock) {
-        XSAN_LOG_ERROR("Client socket event for sock %p with mismatched/NULL pending_op! This is a bug.", sock);
-        if (sock) { struct spdk_sock *tmp_sock = sock; spdk_sock_close(&tmp_sock); }
-        if (pending_op) XSAN_FREE(pending_op);
-        return;
-    }
-
-    XSAN_LOG_DEBUG("Client socket event for %s (sock %p), type %d, sock_errno: %d",
-                   pending_op->target_addr_str_for_log, sock, event_type, s_errno);
-
-    switch (event_type) {
-        case SPDK_SOCK_EVENT_CONNECTED: {
-            XSAN_LOG_INFO("Successfully connected to %s (sock %p).", pending_op->target_addr_str_for_log, sock);
-            xsan_connection_ctx_t *new_conn_ctx = _create_connection_ctx(sock,
-                                                                       g_node_comm_ctx.global_app_msg_handler_cb,
-                                                                       g_node_comm_ctx.global_app_msg_handler_cb_arg);
-            if (new_conn_ctx) {
-                _add_connection_to_active_list(new_conn_ctx);
-                spdk_sock_set_cb_fn(sock, _xsan_comm_sock_event_callback);
-                spdk_sock_set_cb_arg(sock, new_conn_ctx);
-                pending_op->user_cb(sock, 0, pending_op->user_cb_arg);
-            } else {
-                XSAN_LOG_ERROR("Failed to create conn_ctx for successfully connected client socket %s. Closing.", pending_op->target_addr_str_for_log);
-                pending_op->user_cb(NULL, -ENOMEM, pending_op->user_cb_arg);
-                struct spdk_sock *tmp_sock = sock; spdk_sock_close(&tmp_sock);
-            }
-            XSAN_FREE(pending_op);
-            break;
-        }
-        case SPDK_SOCK_EVENT_ERR:
-        case SPDK_SOCK_EVENT_HUP:
-            XSAN_LOG_ERROR("Failed to connect to %s (sock %p). Event: %d, errno: %d (%s), sock_errno: %d",
-                          pending_op->target_addr_str_for_log, sock, event_type, errno, strerror(errno), s_errno);
-            pending_op->user_cb(NULL, s_errno ? -s_errno : -ECONNREFUSED, pending_op->user_cb_arg);
-            pending_op->sock_in_progress = NULL;
-            XSAN_FREE(pending_op);
-            // SPDK usually closes the socket on error during connect.
-            break;
-        default:
-            XSAN_LOG_WARN("Unexpected event %d on client socket %s during connection phase.", event_type, pending_op->target_addr_str_for_log);
-            break;
-    }
 }
 
 xsan_error_t xsan_node_comm_send_msg(struct spdk_sock *sock, xsan_message_t *msg,

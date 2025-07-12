@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h> // For strerror
 #include <errno.h>  // For errno constants
+#include <stdbool.h>
 
 // Calculate the size of the error messages array.
 // XSAN_OK is 0. Errors are negative.
@@ -55,6 +56,7 @@ static void initialize_error_messages() {
     error_messages[abs(XSAN_ERROR_RESOURCE_BUSY)] = "Resource busy";
     error_messages[abs(XSAN_ERROR_INTERRUPTED)] = "Operation interrupted";
     error_messages[abs(XSAN_ERROR_ALREADY_EXISTS)] = "Item or resource already exists";
+    error_messages[abs(XSAN_ERROR_NOT_INITIALIZED)] = "Resource or module not initialized";
 
     // File System & Disk Errors
     error_messages[abs(XSAN_ERROR_FILE_NOT_FOUND)] = "File not found";

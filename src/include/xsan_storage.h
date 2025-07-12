@@ -10,6 +10,19 @@
 extern "C" {
 #endif
 
+// --- 枚举提前定义，修复类型引用错误 ---
+typedef enum {
+    XSAN_STORAGE_STATE_UNKNOWN = 0,
+    XSAN_STORAGE_STATE_INITIALIZING,
+    XSAN_STORAGE_STATE_ONLINE,
+    XSAN_STORAGE_STATE_OFFLINE,
+    XSAN_STORAGE_STATE_DEGRADED,
+    XSAN_STORAGE_STATE_FAILED,
+    XSAN_STORAGE_STATE_MISSING,
+    XSAN_STORAGE_STATE_REBUILDING,
+    XSAN_STORAGE_STATE_MAINTENANCE
+} xsan_storage_state_t;
+
 // --- Type Definitions for IDs ---
 typedef xsan_uuid_t xsan_node_id_t;       // Unique identifier for a node in the cluster
 typedef xsan_uuid_t xsan_disk_id_t;       // Using UUID for unique disk identification
@@ -50,20 +63,7 @@ typedef enum {
     XSAN_STORAGE_DISK_TYPE_OTHER_HDD  // Generic HDD if more specific type unknown
 } xsan_storage_disk_type_t;
 
-/**
- * @brief Defines the operational state of a disk or disk group.
- */
-typedef enum {
-    XSAN_STORAGE_STATE_UNKNOWN = 0,      ///< State is not determined
-    XSAN_STORAGE_STATE_INITIALIZING,   ///< Being initialized or discovered
-    XSAN_STORAGE_STATE_ONLINE,         ///< Healthy and operational
-    XSAN_STORAGE_STATE_OFFLINE,        ///< Intentionally taken offline or not available
-    XSAN_STORAGE_STATE_DEGRADED,       ///< Operational but with reduced performance/redundancy
-    XSAN_STORAGE_STATE_FAILED,         ///< Not operational due to failure
-    XSAN_STORAGE_STATE_MISSING,        ///< Expected disk is not found
-    XSAN_STORAGE_STATE_REBUILDING,     ///< Data is being rebuilt (e.g., for a RAID array)
-    XSAN_STORAGE_STATE_MAINTENANCE     ///< Undergoing maintenance
-} xsan_storage_state_t;
+// ...已在顶部定义 xsan_storage_state_t 枚举...
 
 /**
  * @brief Defines the type or layout of a disk group.
