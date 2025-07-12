@@ -63,6 +63,8 @@ typedef struct xsan_node_config {
     bool enable_ssl;                /* 是否启用SSL */
     char ssl_cert_file[256];        /* SSL证书文件 */
     char ssl_key_file[256];         /* SSL私钥文件 */
+    char nvmf_target_nqn[XSAN_MAX_NAME_LEN]; /* Optional NQN for NVMe-oF target */
+    char nvmf_listen_port[16];        /* Optional NVMe-oF listen port (as string) */
 } xsan_node_config_t;
 
 /* 存储配置 */

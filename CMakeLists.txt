@@ -131,6 +131,7 @@ add_subdirectory(src/replication) # Added replication (for replicated IO context
 add_subdirectory(src/metadata) # Added metadata (for RocksDB store wrapper)
 add_subdirectory(src/storage) # Added storage (for disk_manager, volume_manager)
 add_subdirectory(src/vhost)   # Added vhost (for XSAN vbdev and vhost integration)
+add_subdirectory(src/nvmf)    # Added NVMe-oF target module
 add_subdirectory(src/main)    # Main executable likely defined here
 add_subdirectory(tests)
 

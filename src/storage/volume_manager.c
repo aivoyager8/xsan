@@ -21,7 +21,7 @@
 #include "spdk/util.h"
 #include <pthread.h>
 #include <errno.h>
-#include <limits.h> // For UINT32_MAX if not in stdint
+#include <limits.h>
 
 #define XSAN_VOLUME_META_PREFIX "v:"
 #define XSAN_VOL_ALLOC_META_PREFIX "volalloc:"
@@ -51,7 +51,20 @@ typedef struct {
     xsan_volume_id_t volume_id_for_log;
 } xsan_vm_physical_io_ctx_t;
 
-// Forward declarations for static functions
+typedef struct {
+    xsan_volume_manager_t *vm;
+    struct xsan_connection_ctx *originating_conn_ctx;
+    xsan_message_header_t original_req_header;
+    union {
+        xsan_replica_write_req_payload_t write_req_payload;
+        xsan_replica_read_req_payload_t read_req_payload;
+    } req_payload_data;
+    void *dma_buffer;
+    uint64_t data_len_bytes;
+    bool is_read_op_on_replica;
+} xsan_replica_op_handler_ctx_t;
+
+// Forward declarations
 static xsan_error_t xsan_volume_manager_load_metadata(xsan_volume_manager_t *vm);
 static xsan_error_t xsan_volume_manager_save_volume_meta(xsan_volume_manager_t *vm, xsan_volume_t *vol);
 static xsan_error_t xsan_volume_manager_delete_volume_meta(xsan_volume_manager_t *vm, xsan_volume_id_t volume_id);
@@ -70,20 +83,8 @@ static void _xsan_remote_replica_read_req_send_complete_cb(int comm_status, void
 static void _xsan_remote_replica_read_connect_then_send_cb(struct spdk_sock *sock, int status, void *cb_arg);
 static void _xsan_volume_update_overall_state(xsan_volume_manager_t *vm, xsan_volume_t *vol);
 static void _xsan_physical_io_complete_cb(void *cb_arg_from_io_layer, xsan_error_t status);
-
-// Context for replica operation request handling (defined in volume_manager.c as it's internal to its logic)
-typedef struct {
-    xsan_volume_manager_t *vm;
-    struct xsan_connection_ctx *originating_conn_ctx; // From xsan_node_comm.h (needs forward decl or include)
-    xsan_message_header_t original_req_header;
-    union {
-        xsan_replica_write_req_payload_t write_req_payload;
-        xsan_replica_read_req_payload_t read_req_payload;
-    } req_payload_data;
-    void *dma_buffer; // For reads, data is read here; for writes, this is NULL (data is in msg)
-    uint64_t data_len_bytes; // Length of data in dma_buffer (for reads) or from message (for writes)
-    bool is_read_op_on_replica;
-} xsan_replica_op_handler_ctx_t;
+static void _handle_replica_local_io_complete_cb(void *cb_arg_from_local_io, xsan_error_t local_io_status);
+static void _replica_op_response_send_complete_cb(int status, void *cb_arg);
 
 
 static uint64_t _get_current_time_us() {
@@ -524,7 +525,7 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
     }
 
     alloc_meta = XSAN_MALLOC(sizeof(xsan_volume_allocation_meta_t));
-    if (!alloc_meta) { err = XSAN_ERROR_OUT_OF_MEMORY; goto cleanup_extents_volume_unlock;}
+    if (!alloc_meta) { err = XSAN_ERROR_OUT_OF_MEMORY; goto cleanup_extents_new_volume_unlock;}
     memset(alloc_meta, 0, sizeof(xsan_volume_allocation_meta_t));
     memcpy(&alloc_meta->volume_id, &new_volume->id, sizeof(xsan_volume_id_t));
     memcpy(&alloc_meta->disk_group_id, &group_id, sizeof(xsan_group_id_t));
@@ -533,7 +534,7 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
     if (num_allocated_extents > 0 && allocated_extents) {
         if (num_allocated_extents > XSAN_MAX_EXTENTS_PER_VOLUME) {
             XSAN_LOG_ERROR("Volume '%s' allocated too many extents (%u) > max (%d).", name, num_allocated_extents, XSAN_MAX_EXTENTS_PER_VOLUME);
-            err = XSAN_ERROR_TOO_MANY_EXTENTS; goto cleanup_alloc_meta_extents_volume_unlock;
+            err = XSAN_ERROR_TOO_MANY_EXTENTS; goto cleanup_alloc_meta_extents_new_volume_unlock;
         }
         memcpy(alloc_meta->extents, allocated_extents, num_allocated_extents * sizeof(xsan_volume_extent_mapping_t));
         alloc_meta->num_extents = num_allocated_extents;
@@ -544,7 +545,7 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
     err = _xsan_volume_allocation_meta_to_json_string(alloc_meta, &alloc_meta_json);
     if (err != XSAN_OK) {
         XSAN_LOG_ERROR("Failed to serialize alloc meta for '%s': %s", name, xsan_error_string(err));
-        goto cleanup_alloc_meta_extents_volume_unlock;
+        goto cleanup_alloc_meta_extents_new_volume_unlock;
     }
 
     snprintf(alloc_meta_key, sizeof(alloc_meta_key), "%s%s", XSAN_VOL_ALLOC_META_PREFIX, spdk_uuid_get_string((struct spdk_uuid*)&new_volume->id.data[0]));
@@ -552,7 +553,7 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
     XSAN_FREE(alloc_meta_json); alloc_meta_json = NULL;
     if (err != XSAN_OK) {
         XSAN_LOG_ERROR("Failed to save alloc meta for '%s' to DB: %s", name, xsan_error_string(err));
-        goto cleanup_alloc_meta_extents_volume_unlock;
+        goto cleanup_alloc_meta_extents_new_volume_unlock;
     }
 
     uint32_t online_replicas_init = 0;
@@ -566,22 +567,15 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
     if (err != XSAN_OK) {
         XSAN_LOG_ERROR("Failed to save main volume metadata for '%s'. Rolling back alloc meta.", name);
         xsan_metadata_store_delete(vm->md_store, alloc_meta_key, strlen(alloc_meta_key));
-        goto cleanup_alloc_meta_extents_volume_unlock;
+        goto cleanup_alloc_meta_extents_new_volume_unlock;
     }
 
     if (xsan_list_append(vm->managed_volumes, new_volume) == NULL) {
         err = XSAN_ERROR_OUT_OF_MEMORY;
-        XSAN_LOG_ERROR("Failed to append volume '%s' to managed list. Rolling back.", name);
+        XSAN_LOG_FATAL("Failed to append volume '%s' to managed list after saving metadata! Critical inconsistency.", name);
         xsan_metadata_store_delete(vm->md_store, alloc_meta_key, strlen(alloc_meta_key));
         xsan_volume_manager_delete_volume_meta(vm, new_volume->id);
-        // new_volume is not freed here as it's already on the list if save_volume_meta succeeded.
-        // If append fails, new_volume is not on the list, so it should be freed.
-        // This path needs careful review: if save_volume_meta succeeded but append fails,
-        // new_volume is in DB but not in memory list.
-        // For now, assume if this append fails, new_volume should be freed.
-        // The actual xsan_list_append doesn't take ownership, so new_volume needs freeing if this path is taken.
-        // However, cleanup_alloc_meta_extents_volume_unlock will free new_volume.
-        goto cleanup_alloc_meta_extents_volume_unlock;
+        goto cleanup_alloc_meta_extents_new_volume_unlock;
     }
 
     if (vol_id_out) memcpy(vol_id_out, &new_volume->id, sizeof(xsan_volume_id_t));
@@ -589,25 +583,23 @@ xsan_error_t xsan_volume_create(xsan_volume_manager_t *vm, const char *name, uin
                   new_volume->name, spdk_uuid_get_string((struct spdk_uuid*)&new_volume->id.data[0]),
                   new_volume->size_bytes, new_volume->FTT, new_volume->actual_replica_count, new_volume->state);
 
-    // Success path cleanup
-    if(allocated_extents) XSAN_FREE(allocated_extents); // Freed as it was copied to alloc_meta
-    if(alloc_meta) XSAN_FREE(alloc_meta); // Freed as it was serialized
+    if(allocated_extents) XSAN_FREE(allocated_extents);
+    if(alloc_meta) XSAN_FREE(alloc_meta);
     pthread_mutex_unlock(&vm->lock);
     return XSAN_OK;
 
-cleanup_alloc_meta_extents_volume_unlock:
+cleanup_alloc_meta_extents_new_volume_unlock:
     if (alloc_meta && alloc_meta->num_extents > 0) {
          xsan_disk_group_free_extents(vm->disk_manager, group_id, alloc_meta->extents, alloc_meta->num_extents);
     } else if (allocated_extents && num_allocated_extents > 0) {
          xsan_disk_group_free_extents(vm->disk_manager, group_id, allocated_extents, num_allocated_extents);
     }
-    if(allocated_extents) XSAN_FREE(allocated_extents); // Must free if it was allocated
+    if(allocated_extents) XSAN_FREE(allocated_extents);
     if(alloc_meta) XSAN_FREE(alloc_meta);
-    // Fallthrough
 cleanup_new_volume_unlock:
     if(new_volume) XSAN_FREE(new_volume);
-    // Fallthrough
 cleanup_unlock:
+    if(alloc_meta_json) XSAN_FREE(alloc_meta_json);
     pthread_mutex_unlock(&vm->lock);
     return err;
 }
@@ -645,28 +637,27 @@ xsan_error_t xsan_volume_delete(xsan_volume_manager_t *vm, xsan_volume_id_t volu
             get_meta_err = _xsan_json_string_to_volume_allocation_meta(alloc_meta_json, &alloc_meta);
             XSAN_FREE(alloc_meta_json);
             if (get_meta_err != XSAN_OK) {
-                XSAN_LOG_ERROR("Failed to deserialize allocation metadata for volume ID %s during delete.",
+                XSAN_LOG_ERROR("Failed to deserialize allocation metadata for volume ID %s during delete. Extents might not be freed.",
                                spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
                 alloc_meta = NULL;
             }
         } else if (get_meta_err == XSAN_ERROR_NOT_FOUND) {
-            XSAN_LOG_INFO("No allocation metadata found for volume ID %s during delete. Assuming no extents to free.",
+            XSAN_LOG_INFO("No allocation metadata found for volume ID %s during delete. Assuming no extents to free (e.g., thin & unwritten).",
                           spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
             alloc_meta = NULL;
         } else {
-             XSAN_LOG_ERROR("Failed to get allocation metadata for volume ID %s during delete: %s.",
+             XSAN_LOG_ERROR("Failed to get allocation metadata for volume ID %s during delete: %s. Extents might not be freed.",
                            spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), xsan_error_string(get_meta_err));
              alloc_meta = NULL;
         }
 
         if (alloc_meta && alloc_meta->num_extents > 0) {
-            // Use the disk_group_id from the loaded alloc_meta
             xsan_error_t free_err = xsan_disk_group_free_extents(vm->disk_manager,
                                                                  alloc_meta->disk_group_id,
                                                                  alloc_meta->extents,
                                                                  alloc_meta->num_extents);
             if (free_err != XSAN_OK) {
-                XSAN_LOG_ERROR("Failed to free extents for volume ID %s from group %s: %s.",
+                XSAN_LOG_ERROR("Failed to free extents for volume ID %s from group %s: %s. Metadata inconsistency may occur.",
                                spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]),
                                spdk_uuid_get_string((struct spdk_uuid*)&alloc_meta->disk_group_id.data[0]),
                                xsan_error_string(free_err));
@@ -682,16 +673,14 @@ xsan_error_t xsan_volume_delete(xsan_volume_manager_t *vm, xsan_volume_id_t volu
                            spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), xsan_error_string(del_alloc_err));
         }
 
-        xsan_list_remove_node(vm->managed_volumes, node);
-        vol_to_delete = NULL;
-
-        err = xsan_volume_manager_delete_volume_meta(vm, volume_id); // Delete main volume meta
-        if (err != XSAN_OK) {
-            XSAN_LOG_ERROR("Failed to delete main metadata for volume ID %s. In-memory entry removed.",
+        err = xsan_volume_manager_delete_volume_meta(vm, volume_id);
+        if (err != XSAN_OK && err != XSAN_ERROR_NOT_FOUND) {
+            XSAN_LOG_ERROR("Failed to delete main metadata for volume ID %s.",
                            spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
-        } else {
-            XSAN_LOG_INFO("Volume (ID: %s) deleted successfully.", spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
         }
+
+        xsan_list_remove_node(vm->managed_volumes, node);
+        XSAN_LOG_INFO("Volume (ID: %s) and its allocation metadata (if any) processed for deletion.", spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
         err = XSAN_OK;
     }
 
@@ -716,6 +705,8 @@ xsan_error_t xsan_volume_map_lba_to_physical(xsan_volume_manager_t *vm,
     }
 
     if (logical_block_idx >= vol->num_blocks) {
+        XSAN_LOG_ERROR("LBA %lu out of bounds for volume %s (num_blocks %lu)",
+            logical_block_idx, vol->name, vol->num_blocks);
         return XSAN_ERROR_OUT_OF_BOUNDS;
     }
 
@@ -748,65 +739,181 @@ xsan_error_t xsan_volume_map_lba_to_physical(xsan_volume_manager_t *vm,
          XSAN_FREE(alloc_meta);
          return XSAN_ERROR_STORAGE_GENERIC;
     }
-    if (alloc_meta->num_extents == 0 && !vol->thin_provisioned) { // Thick but no extents?
-        XSAN_LOG_ERROR("Thick volume %s has no extents in allocation metadata.", vol->name);
+    if (alloc_meta->volume_logical_block_size != vol->block_size_bytes ||
+        alloc_meta->total_volume_blocks_logical != vol->num_blocks) {
+        XSAN_LOG_ERROR("Mismatch between volume_t and alloc_meta_t for vol %s. (BlkSize: %u vs %u, NumBlks: %lu vs %lu)",
+                        vol->name, vol->block_size_bytes, alloc_meta->volume_logical_block_size,
+                        vol->num_blocks, alloc_meta->total_volume_blocks_logical);
+    }
+
+    if (alloc_meta->num_extents == 0) {
+        XSAN_LOG_DEBUG("Volume %s LBA %lu currently unmapped (no extents). Thin provisioned or error.", vol->name, logical_block_idx);
         XSAN_FREE(alloc_meta);
         return XSAN_ERROR_UNMAPPED_LBA;
-    }
-    if (alloc_meta->num_extents == 0 && vol->thin_provisioned) { // Thin and no extents yet for this LBA
-        XSAN_LOG_DEBUG("Thin volume %s LBA %lu currently unmapped (no extents).", vol->name, logical_block_idx);
-        XSAN_FREE(alloc_meta);
-        return XSAN_ERROR_UNMAPPED_LBA; // Or specific error for "needs allocation"
     }
 
     for (uint32_t i = 0; i < alloc_meta->num_extents; ++i) {
         const xsan_volume_extent_mapping_t *extent = &alloc_meta->extents[i];
-
         xsan_disk_t *disk = xsan_disk_manager_find_disk_by_id(vm->disk_manager, extent->disk_id);
         if (!disk || disk->block_size_bytes == 0) {
             XSAN_LOG_ERROR("Failed to find disk %s for extent %u of vol %s or disk has zero block size.",
                            spdk_uuid_get_string((struct spdk_uuid*)&extent->disk_id.data[0]), i, vol->name);
             continue;
         }
-        // Number of volume's logical blocks this extent can hold
-        uint64_t num_volume_blocks_in_extent = (extent->num_blocks_on_disk * disk->block_size_bytes) / alloc_meta->volume_logical_block_size;
+        uint64_t extent_total_bytes_on_disk = extent->num_blocks_on_disk * disk->block_size_bytes;
+        uint64_t num_volume_blocks_in_this_extent = extent_total_bytes_on_disk / alloc_meta->volume_logical_block_size;
+        if (extent_total_bytes_on_disk % alloc_meta->volume_logical_block_size != 0) {
+            XSAN_LOG_WARN("Extent %u for vol %s has size %lu bytes on disk %s (block size %u), not perfectly divisible by vol block size %u.",
+                          i, vol->name, extent_total_bytes_on_disk, disk->bdev_name, disk->block_size_bytes, alloc_meta->volume_logical_block_size);
+        }
 
         if (logical_block_idx >= extent->volume_start_lba &&
-            logical_block_idx < (extent->volume_start_lba + num_volume_blocks_in_extent)) {
-
+            logical_block_idx < (extent->volume_start_lba + num_volume_blocks_in_this_extent)) {
             uint64_t offset_within_extent_logical_blocks = logical_block_idx - extent->volume_start_lba;
             uint64_t offset_within_extent_bytes = offset_within_extent_logical_blocks * alloc_meta->volume_logical_block_size;
-
+            if ((offset_within_extent_bytes + alloc_meta->volume_logical_block_size) > extent_total_bytes_on_disk &&
+                (offset_within_extent_bytes < extent_total_bytes_on_disk) ) { // Check if the start of the block is within, but end is out
+                 XSAN_LOG_ERROR("Calculated byte offset %lu + vol_block_size %u exceeds extent size %lu on disk %s for vol %s LBA %lu.",
+                                offset_within_extent_bytes, alloc_meta->volume_logical_block_size, extent_total_bytes_on_disk,
+                                disk->bdev_name, vol->name, logical_block_idx);
+                 XSAN_FREE(alloc_meta);
+                 return XSAN_ERROR_INTERNAL;
+            }
             *out_physical_block_idx = extent->start_block_on_disk + (offset_within_extent_bytes / disk->block_size_bytes);
             *out_physical_block_size = disk->block_size_bytes;
             memcpy(out_disk_id, &extent->disk_id, sizeof(xsan_disk_id_t));
-
+            XSAN_LOG_DEBUG("Mapped vol %s LBA %lu to Disk %s PhysLBA %lu (PhysBlkSize %u)",
+                           vol->name, logical_block_idx, disk->bdev_name, *out_physical_block_idx, *out_physical_block_size);
             XSAN_FREE(alloc_meta);
             return XSAN_OK;
         }
     }
-
-    XSAN_LOG_WARN("Volume %s (ID: %s): LBA %lu not found in any extent. Thin provisioned region or error.",
-                  vol->name, spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), logical_block_idx);
+    XSAN_LOG_WARN("Volume %s (ID: %s): LBA %lu not found in any of its %u extents.",
+                  vol->name, spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), logical_block_idx, alloc_meta->num_extents);
     XSAN_FREE(alloc_meta);
     return XSAN_ERROR_UNMAPPED_LBA;
 }
 
 // ... (rest of the file: _xsan_physical_io_complete_cb, _xsan_volume_submit_single_io_attempt, replication callbacks, async read/write, replica request handlers) ...
-// The previously shown implementations of these functions would follow here.
-// For brevity, I'm not repeating all of them, but they are part of the overwritten content.
-
-static void _xsan_check_replicated_write_completion(xsan_replicated_io_ctx_t *rep_ctx) {
-    if(!rep_ctx)return; uint32_t done_c = __sync_add_and_fetch(&rep_ctx->successful_writes,0) + __sync_add_and_fetch(&rep_ctx->failed_writes,0);
-    if(done_c >= rep_ctx->total_replicas_targeted){
-        xsan_volume_t *vol = xsan_volume_get_by_id(g_xsan_volume_manager_instance, rep_ctx->volume_id);
-        if(rep_ctx->successful_writes >= rep_ctx->total_replicas_targeted) rep_ctx->final_status=XSAN_OK;
-        else if(rep_ctx->final_status==XSAN_OK)rep_ctx->final_status=XSAN_ERROR_REPLICATION_GENERIC;
-        if(vol) _xsan_volume_update_overall_state(g_xsan_volume_manager_instance, vol);
-        if(rep_ctx->original_user_cb)rep_ctx->original_user_cb(rep_ctx->original_user_cb_arg,rep_ctx->final_status);
-        pthread_mutex_lock(&g_xsan_volume_manager_instance->pending_ios_lock); xsan_hashtable_remove(g_xsan_volume_manager_instance->pending_replicated_ios,&rep_ctx->transaction_id); pthread_mutex_unlock(&g_xsan_volume_manager_instance->pending_ios_lock);
-        xsan_replicated_io_ctx_free(rep_ctx);
+static void _xsan_physical_io_complete_cb(void *cb_arg_from_io_layer, xsan_error_t status) {
+    xsan_io_request_t *io_req = (xsan_io_request_t *)cb_arg_from_io_layer;
+    if (!io_req || !io_req->user_cb_arg) {
+        XSAN_LOG_ERROR("Physical I/O complete with NULL io_req or user_cb_arg (phys_io_ctx)!");
+        return;
     }
+    xsan_vm_physical_io_ctx_t *phys_io_ctx = (xsan_vm_physical_io_ctx_t *)io_req->user_cb_arg;
+    if (phys_io_ctx->is_read_op && status == XSAN_OK) {
+        if (io_req->dma_buffer && phys_io_ctx->original_user_buffer && io_req->dma_buffer_is_internal) {
+            memcpy(phys_io_ctx->original_user_buffer, io_req->dma_buffer, phys_io_ctx->length_bytes);
+            XSAN_LOG_DEBUG("Read data copied from DMA to user buffer for vol %s, len %lu",
+                spdk_uuid_get_string((struct spdk_uuid*)&phys_io_ctx->volume_id_for_log.data[0]), phys_io_ctx->length_bytes);
+        } else if (io_req->dma_buffer_is_internal && (!io_req->dma_buffer || !phys_io_ctx->original_user_buffer)) {
+             XSAN_LOG_ERROR("Read success for vol %s, but data copy failed due to missing buffers/info (dma_is_internal=%d, dma_buf=%p, user_buf=%p).",
+                spdk_uuid_get_string((struct spdk_uuid*)&phys_io_ctx->volume_id_for_log.data[0]),
+                io_req->dma_buffer_is_internal, io_req->dma_buffer, phys_io_ctx->original_user_buffer);
+             status = XSAN_ERROR_INTERNAL;
+        }
+    }
+    if (phys_io_ctx->actual_upper_cb) {
+        phys_io_ctx->actual_upper_cb(phys_io_ctx->actual_upper_cb_arg, status);
+    }
+    XSAN_FREE(phys_io_ctx);
+}
+
+static xsan_error_t _xsan_volume_submit_single_io_attempt(
+    xsan_volume_manager_t *vm,
+    xsan_volume_id_t volume_id,
+    uint64_t logical_byte_offset,
+    uint64_t length_bytes,
+    void *original_user_buffer,
+    bool is_read_op,
+    xsan_user_io_completion_cb_t upper_completion_cb,
+    void *upper_completion_cb_arg) {
+
+    if (!vm || !vm->initialized) return XSAN_ERROR_INVALID_PARAM;
+    xsan_volume_t *vol = xsan_volume_get_by_id(vm, volume_id);
+    if (!vol) return XSAN_ERROR_NOT_FOUND;
+    if (vol->block_size_bytes == 0 ||
+        (logical_byte_offset % vol->block_size_bytes != 0) ||
+        (length_bytes % vol->block_size_bytes != 0) ||
+        (length_bytes == 0) ||
+        (logical_byte_offset + length_bytes > vol->size_bytes)) {
+        return XSAN_ERROR_INVALID_PARAM_ALIGNMENT;
+    }
+    uint64_t logical_block_idx = logical_byte_offset / vol->block_size_bytes;
+    xsan_disk_id_t physical_disk_id;
+    uint64_t physical_start_block_idx;
+    uint32_t physical_block_size_bytes;
+    xsan_error_t map_err = xsan_volume_map_lba_to_physical(vm, volume_id, logical_block_idx,
+                                                         &physical_disk_id, &physical_start_block_idx,
+                                                         &physical_block_size_bytes);
+    if (map_err != XSAN_OK) {
+        XSAN_LOG_ERROR("Vol %s: Failed to map LBA_idx %lu: %s",
+                       spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), logical_block_idx, xsan_error_string(map_err));
+        return map_err;
+    }
+    if (physical_block_size_bytes == 0) {
+        XSAN_LOG_ERROR("Vol %s: Mapped physical disk has zero block size.", spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]));
+        return XSAN_ERROR_STORAGE_GENERIC;
+    }
+    if (length_bytes % physical_block_size_bytes != 0) {
+        XSAN_LOG_ERROR("Vol %s: I/O length %lu is not a multiple of physical block size %u for mapped LBA %lu.",
+                        spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), length_bytes, physical_block_size_bytes, logical_block_idx);
+        return XSAN_ERROR_INVALID_PARAM_ALIGNMENT;
+    }
+    xsan_disk_t *physical_disk = xsan_disk_manager_find_disk_by_id(vm->disk_manager, physical_disk_id);
+    if (!physical_disk) {
+        XSAN_LOG_ERROR("Vol %s: Physical disk (ID: %s) for LBA map not found.",
+                       spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), spdk_uuid_get_string((struct spdk_uuid*)&physical_disk_id.data[0]));
+        return XSAN_ERROR_STORAGE_GENERIC;
+    }
+    if (!physical_disk->bdev_descriptor) {
+        XSAN_LOG_ERROR("Vol %s: Physical disk '%s' (ID: %s) for LBA map has no bdev descriptor.",
+                       spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]), physical_disk->bdev_name, spdk_uuid_get_string((struct spdk_uuid*)&physical_disk_id.data[0]));
+        return XSAN_ERROR_RESOURCE_UNAVAILABLE;
+    }
+
+    xsan_vm_physical_io_ctx_t *phys_io_ctx = XSAN_MALLOC(sizeof(xsan_vm_physical_io_ctx_t));
+    if(!phys_io_ctx) return XSAN_ERROR_OUT_OF_MEMORY;
+
+    phys_io_ctx->actual_upper_cb = upper_completion_cb;
+    phys_io_ctx->actual_upper_cb_arg = upper_completion_cb_arg;
+    phys_io_ctx->original_user_buffer = original_user_buffer;
+    phys_io_ctx->is_read_op = is_read_op;
+    phys_io_ctx->length_bytes = length_bytes;
+    memcpy(&phys_io_ctx->volume_id_for_log, &volume_id, sizeof(xsan_volume_id_t));
+
+    xsan_io_request_t *io_req = xsan_io_request_create(volume_id,
+                                                      original_user_buffer,
+                                                      physical_start_block_idx * physical_block_size_bytes,
+                                                      length_bytes,
+                                                      physical_block_size_bytes,
+                                                      is_read_op,
+                                                      _xsan_physical_io_complete_cb,
+                                                      phys_io_ctx);
+    if (!io_req) {
+        XSAN_FREE(phys_io_ctx);
+        return XSAN_ERROR_OUT_OF_MEMORY;
+    }
+    phys_io_ctx->io_req = io_req;
+
+    memcpy(&io_req->target_disk_id, &physical_disk->id, sizeof(xsan_disk_id_t));
+    xsan_strcpy_safe(io_req->target_bdev_name, physical_disk->bdev_name, XSAN_MAX_NAME_LEN);
+    io_req->bdev_desc = physical_disk->bdev_descriptor;
+    io_req->io_channel = NULL;
+    io_req->own_spdk_resources = false;
+
+    xsan_error_t submit_err = xsan_io_submit_request_to_bdev(io_req);
+
+    if (submit_err != XSAN_OK) {
+        XSAN_LOG_ERROR("Vol %s: Failed to submit %s to bdev '%s' via xsan_io: %s",
+                       spdk_uuid_get_string((struct spdk_uuid*)&volume_id.data[0]),
+                       is_read_op ? "read" : "write",
+                       physical_disk->bdev_name, xsan_error_string(submit_err));
+        XSAN_FREE(phys_io_ctx);
+        return submit_err;
+    }
+    return XSAN_OK;
 }
 
 static void _xsan_local_replica_write_complete_cb(void *cb_arg, xsan_error_t status) {
@@ -1253,8 +1360,6 @@ xsan_error_t xsan_volume_write_async(xsan_volume_manager_t *vm,
     return XSAN_OK;
 }
 
-// Replica Request Handler Implementations are below (xsan_volume_manager_handle_replica_write_req, etc.)
-// ... (as previously implemented)
 void xsan_volume_manager_handle_replica_write_req(struct xsan_connection_ctx *conn_ctx,
                                                   xsan_message_t *msg,
                                                   void *cb_arg_vol_mgr) {
@@ -1420,7 +1525,7 @@ void xsan_volume_manager_handle_replica_read_req(struct xsan_connection_ctx *con
     local_io_handler_ctx->is_read_op_on_replica = true;
     local_io_handler_ctx->data_len_bytes = data_len_to_read;
 
-    size_t align = 4096; // Default
+    size_t align = 4096;
     xsan_disk_group_t *dg = xsan_disk_manager_find_disk_group_by_id(vm->disk_manager, vol->source_group_id);
     if(dg && dg->disk_count > 0) {
         xsan_disk_t *d0 = xsan_disk_manager_find_disk_by_id(vm->disk_manager, dg->disk_ids[0]);

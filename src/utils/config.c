@@ -590,6 +590,15 @@ bool xsan_config_load_node_config(xsan_config_t *config, xsan_node_config_t *nod
                      xsan_config_get_string(config, "node.ssl_key_file", ""), 
                      sizeof(node_config->ssl_key_file));
     
+    // Load NVMe-oF target specific config (optional)
+    xsan_strcpy_safe(node_config->nvmf_target_nqn,
+                     xsan_config_get_string(config, "nvmf.target_nqn", ""), // Default to empty, nvmf_target_init will use default
+                     sizeof(node_config->nvmf_target_nqn));
+
+    xsan_strcpy_safe(node_config->nvmf_listen_port,
+                     xsan_config_get_string(config, "nvmf.listen_port", "4420"), // Default NVMe-oF TCP port
+                     sizeof(node_config->nvmf_listen_port));
+
     return true;
 }
 
