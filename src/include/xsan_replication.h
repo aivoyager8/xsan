@@ -65,6 +65,22 @@ typedef struct xsan_replicated_io_ctx {
 
 
 /**
+ * @brief Context for a single operation targeted at one specific (usually remote) replica.
+ * This is used by both replicated writes (for each remote replica) and by the read coordinator
+ * (for the current remote read attempt).
+ */
+typedef struct xsan_per_replica_op_ctx {
+    void *parent_rep_ctx;                      ///< Pointer to the parent context (e.g., xsan_replicated_io_ctx_t or xsan_replica_read_coordinator_ctx_t)
+    xsan_replica_location_t replica_location_info; ///< Information about the target replica node
+    struct xsan_message *request_msg_to_send;  ///< The protocol message to send to the replica
+    struct spdk_sock *connected_sock;          ///< Socket, if connection is established and reused
+    // Add any other state needed for this specific per-replica operation,
+    // e.g., retry count for this specific replica, timeout timer.
+    // uint32_t current_attempt_retries;
+} xsan_per_replica_op_ctx_t;
+
+
+/**
  * @brief Context for coordinating a read operation that might try multiple replicas.
  */
 typedef struct xsan_replica_read_coordinator_ctx {

@@ -9,6 +9,7 @@
 #include "xsan_vhost.h"
 #include "xsan_error.h"
 #include "xsan_string_utils.h"
+#include "xsan_cluster.h" // For xsan_get_local_node_info (will be called from volume_manager)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,11 +17,18 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <getopt.h> // For command line argument parsing
 
 #include "spdk/uuid.h"
 #include "spdk/env.h"
 #include "spdk/sock.h"
 #include "spdk/thread.h"
+
+// Global config instances, accessible by other modules via extern (if needed) or access functions
+xsan_config_t *g_xsan_config = NULL;
+xsan_node_config_t g_local_node_config;
+xsan_cluster_config_t g_cluster_config; // If cluster config is also needed globally
+// xsan_node_id_t g_local_xsan_node_id; // Parsed UUID of local node
 
 #define XSAN_VHOST_SOCKET_DIR "/var/tmp/xsan_vhost_sockets"
 #define XSAN_TEST_VHOST_CTRLR_NAME "xsc0"
@@ -215,5 +223,222 @@ static void _replica_op_local_io_done_cb(void *cb_arg, xsan_error_t local_io_sta
 }
 
 static void _xsan_node_test_message_handler(struct spdk_sock *sock, const char *peer, xsan_message_t *msg, void *cb_arg) { /* ... as before ... */ }
-static void xsan_node_main_spdk_thread_start(void *arg1, int rc) { /* ... as before, calls _start_async_io_test_on_volume ... */ }
-int main(int argc, char **argv) { /* ... as before ... */ }
+
+static char *g_xsan_config_file = NULL; // To be set by command line arg
+
+static void xsan_node_main_spdk_thread_start(void *arg1, int spdk_startup_rc) {
+    XSAN_LOG_INFO("XSAN Node main SPDK thread started. SPDK Startup RC: %d", spdk_startup_rc);
+    if (spdk_startup_rc != 0) {
+        XSAN_LOG_FATAL("SPDK framework failed to start properly (rc=%d). Exiting XSAN node main.", spdk_startup_rc);
+        // Signal app stop if necessary, or handle based on how spdk_app_start behaves on error for its main fn.
+        // If spdk_app_start calls this even on its own error, we should probably just return.
+        return;
+    }
+
+    // Initialize global config
+    g_xsan_config = xsan_config_create();
+    if (!g_xsan_config) {
+        XSAN_LOG_FATAL("Failed to create global config object. Shutting down.");
+        xsan_spdk_manager_request_app_stop();
+        return;
+    }
+
+    const char *config_file_to_load = g_xsan_config_file ? g_xsan_config_file : "xsan_node.conf";
+    XSAN_LOG_INFO("Loading XSAN configuration from: %s", config_file_to_load);
+
+    if (!xsan_config_load_from_file(g_xsan_config, config_file_to_load)) {
+        XSAN_LOG_ERROR("Failed to load config file '%s'. Some features might use defaults or fail.", config_file_to_load);
+        // Depending on strictness, could decide to stop here. For now, proceed with potential defaults.
+    }
+
+    // Load node-specific configuration
+    if (!xsan_config_load_node_config(g_xsan_config, &g_local_node_config)) {
+        XSAN_LOG_ERROR("Failed to parse node-specific config. Critical error. Shutting down.");
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+        xsan_spdk_manager_request_app_stop();
+        return;
+    } else {
+        XSAN_LOG_INFO("Node Config Loaded: ID='%s', Name='%s', Addr='%s', Port=%u, DataDir='%s'",
+                      g_local_node_config.node_id, g_local_node_config.node_name,
+                      g_local_node_config.bind_address, g_local_node_config.port, g_local_node_config.data_dir);
+        if (strlen(g_local_node_config.node_id) == 0 || strcmp(g_local_node_config.node_id, "undefined") == 0) { // Example validation
+             XSAN_LOG_FATAL("Node ID is invalid ('%s') in config. Cannot proceed. Shutting down.", g_local_node_config.node_id);
+             xsan_config_destroy(g_xsan_config);
+             g_xsan_config = NULL;
+             xsan_spdk_manager_request_app_stop();
+             return;
+        }
+        // TODO: Convert g_local_node_config.node_id (string) to g_local_xsan_node_id (xsan_node_id_t/UUID)
+        // if (spdk_uuid_parse(&g_local_xsan_node_id.data[0], g_local_node_config.node_id) != 0) {
+        //    XSAN_LOG_FATAL("Failed to parse configured node_id '%s' as UUID. Shutting down.", g_local_node_config.node_id);
+        //    // ... cleanup and stop ...
+        // }
+    }
+
+    // Load cluster-specific configuration (optional for now, but good for completeness)
+    if (!xsan_config_load_cluster_config(g_xsan_config, &g_cluster_config)) {
+        XSAN_LOG_WARN("Failed to parse cluster-specific config. Cluster operations might be limited.");
+    } else {
+        XSAN_LOG_INFO("Cluster Config Loaded: Name='%s', SeedNodesCount=%zu",
+                      g_cluster_config.cluster_name, g_cluster_config.seed_node_count);
+    }
+
+    // Initialize other XSAN managers that depend on config or SPDK
+    xsan_disk_manager_t *disk_manager = NULL;
+    if (xsan_disk_manager_init(&disk_manager) != XSAN_OK) { // Assumes disk_manager_init uses global config or has own way
+        XSAN_LOG_FATAL("Failed to initialize XSAN Disk Manager. Shutting down.");
+        // ... cleanup config and stop ...
+        return;
+    }
+    xsan_disk_manager_scan_and_register_bdevs(disk_manager);
+
+
+    xsan_volume_manager_t *volume_manager = NULL;
+    if (xsan_volume_manager_init(disk_manager, &volume_manager) != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to initialize XSAN Volume Manager. Shutting down.");
+        // ... cleanup disk_manager, config and stop ...
+        return;
+    }
+
+    // Initialize node communication server (listener)
+    // The _xsan_node_test_message_handler is a placeholder; a real dispatcher is needed.
+    // Pass volume_manager as cb_arg for the handler to use.
+    // TODO: Ensure g_local_node_config.bind_address and .port are valid before use.
+    if (xsan_node_comm_server_start(g_local_node_config.bind_address, g_local_node_config.port, _xsan_node_test_message_handler, volume_manager) != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to start XSAN node communication server on %s:%u. Shutting down.",
+                       g_local_node_config.bind_address, g_local_node_config.port);
+        // ... cleanup volume_manager, disk_manager, config and stop ...
+        return;
+    }
+
+
+    XSAN_LOG_INFO("XSAN Node subsystems initialized. Running test sequences or waiting for events...");
+
+    // --- Example Test Sequence (from original code) ---
+    // This section should be conditional or replaced by actual operational logic.
+    // For now, keeping it to ensure the rest of the file structure is similar.
+    memset(&g_async_io_test_controller, 0, sizeof(g_async_io_test_controller));
+    g_async_io_test_controller.vm = volume_manager;
+    g_async_io_test_controller.dm = disk_manager;
+    // ... (rest of test setup) ...
+    xsan_volume_t *vol_to_test = NULL;
+    if (g_async_io_test_controller.vm && !spdk_uuid_is_null((struct spdk_uuid*)&g_async_io_test_controller.volume_id_to_test.data[0])) {
+         vol_to_test = xsan_volume_get_by_id(g_async_io_test_controller.vm, g_async_io_test_controller.volume_id_to_test);
+    }
+    // For testing, find first available volume if a specific one isn't set up for test
+    if(!vol_to_test && g_async_io_test_controller.vm) {
+        xsan_volume_t **all_vols = NULL; int vol_count = 0;
+        if(xsan_volume_list_all(g_async_io_test_controller.vm, &all_vols, &vol_count) == XSAN_OK && vol_count > 0) {
+            vol_to_test = all_vols[0]; // Test with the first volume found
+            memcpy(&g_async_io_test_controller.volume_id_to_test, &vol_to_test->id, sizeof(xsan_volume_id_t));
+            XSAN_LOG_INFO("Async IO Test will run on automatically selected volume: %s", vol_to_test->name);
+        }
+        if(all_vols) xsan_volume_manager_free_volume_pointer_list(all_vols);
+    }
+
+    if (vol_to_test) {
+        _start_async_io_test_on_volume(&g_async_io_test_controller, vol_to_test);
+    } else {
+        XSAN_LOG_WARN("No volume found or specified for async IO test.");
+        g_async_io_test_controller.test_finished_signal = true; // Skip test
+    }
+    // --- End Example Test Sequence ---
+
+
+    // Main loop for this SPDK thread could poll for application events
+    // or simply rely on other SPDK threads/reactors for network events, etc.
+    // For now, we'll assume the test sequence runs, and then we might wait or exit.
+    // In a real server, this thread would likely enter a polling loop or yield.
+    uint64_t idle_check_period_us = 1000000; // 1 second
+    uint64_t next_idle_check_time = spdk_get_ticks() + idle_check_period_us * spdk_get_ticks_hz() / SPDK_SEC_TO_USEC;
+
+    while (!g_async_io_test_controller.test_finished_signal) { // Example condition to keep running
+        // Do other periodic work if needed
+        if (spdk_get_ticks() > next_idle_check_time) {
+            XSAN_LOG_DEBUG("XSAN main SPDK thread idle tick...");
+            // Check for shutdown signal, etc.
+            // For example: if (xsan_spdk_manager_is_app_stopping()) break;
+            next_idle_check_time = spdk_get_ticks() + idle_check_period_us * spdk_get_ticks_hz() / SPDK_SEC_TO_USEC;
+        }
+        // Yield or poll briefly if this thread is also handling network using spdk_sock_group_poll
+        // spdk_thread_poll(spdk_get_thread(), 0, 0); // Process events on this thread
+        usleep(10000); // Sleep briefly to avoid busy-waiting if no other work
+    }
+
+    XSAN_LOG_INFO("XSAN Node main SPDK thread tasks complete. Cleaning up XSAN subsystems...");
+
+    // Cleanup XSAN subsystems
+    xsan_node_comm_server_stop(); // Stop listening for incoming connections
+    xsan_volume_manager_fini(&volume_manager);
+    xsan_disk_manager_fini(&disk_manager);
+
+    if (g_xsan_config) {
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+    }
+    XSAN_LOG_INFO("XSAN subsystems cleaned up. Requesting SPDK application stop.");
+    xsan_spdk_manager_request_app_stop(); // Signal SPDK app to stop all reactors
+}
+
+static void print_usage(const char *program_name) {
+    printf("Usage: %s [options]\n", program_name);
+    printf("Options:\n");
+    printf("  -c, --config FILE      Path to XSAN node configuration file (default: xsan_node.conf)\n");
+    printf("  -h, --help             Show this help message\n");
+    // Add other SPDK options if we want to pass them through, e.g., -m for coremask
+}
+
+int main(int argc, char **argv) {
+    // Initialize XSAN logging early
+    // xsan_log_set_level(XSAN_LOG_LEVEL_DEBUG); // Example: set default log level
+    // xsan_log_set_output_file("xsan_node_main.log"); // Example: redirect log
+
+    // Command line argument parsing
+    struct option long_options[] = {
+        {"config", required_argument, 0, 'c'},
+        {"help",   no_argument,       0, 'h'},
+        {0, 0, 0, 0}
+    };
+    int opt;
+    while ((opt = getopt_long(argc, argv, "c:h", long_options, NULL)) != -1) {
+        switch (opt) {
+            case 'c':
+                g_xsan_config_file = optarg;
+                break;
+            case 'h':
+                print_usage(argv[0]);
+                return 0;
+            default:
+                print_usage(argv[0]);
+                return 1;
+        }
+    }
+
+
+    XSAN_LOG_INFO("XSAN Node application starting...");
+
+    // Initialize SPDK application options
+    // These could also be influenced by command-line arguments if needed.
+    // For now, using some defaults. The JSON config file for SPDK itself is separate.
+    xsan_spdk_manager_opts_init("xsan_node_spdk_app",
+                                 NULL, // SPDK JSON config file (e.g., for bdevs not auto-detected)
+                                 NULL, // Reactor mask (e.g., "0x1", NULL for default)
+                                 true, // Enable RPC
+                                 "/var/tmp/xsan.sock"); // RPC listen address
+
+    // Start the SPDK application framework. This will initialize SPDK environment,
+    // create reactors, and then call xsan_node_main_spdk_thread_start on one of them.
+    // This call is blocking until spdk_app_stop() is called and all reactors exit.
+    if (xsan_spdk_manager_start_app(xsan_node_main_spdk_thread_start, NULL) != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to start SPDK application framework.");
+        // xsan_config_destroy(g_xsan_config); // g_xsan_config might be null if start_app failed very early
+        return 1;
+    }
+
+    // Finalize SPDK (releases DPDK resources, etc.)
+    xsan_spdk_manager_app_fini();
+
+    XSAN_LOG_INFO("XSAN Node application finished.");
+    return 0;
+}

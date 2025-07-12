@@ -100,4 +100,19 @@ bool xsan_cluster_is_master(void);
  */
 xsan_error_t xsan_cluster_get_master(xsan_uuid_t *master_id);
 
+/**
+ * @brief Retrieves the local node's essential information.
+ * This information is typically loaded from configuration at startup.
+ *
+ * @param node_id_out Pointer to store the local node's XSAN UUID.
+ * @param ip_buf Buffer to store the local node's IP address string.
+ * @param ip_buf_len Size of the ip_buf.
+ * @param port_out Pointer to store the local node's communication port.
+ * @return XSAN_OK on success, XSAN_ERROR_NOT_INITIALIZED if config not loaded,
+ *         or other error codes for invalid parameters/parsing issues.
+ */
+xsan_error_t xsan_get_local_node_info(xsan_node_id_t *node_id_out,
+                                      char *ip_buf, size_t ip_buf_len,
+                                      uint16_t *port_out);
+
 #endif /* XSAN_CLUSTER_H */
