@@ -235,6 +235,29 @@ xsan_message_t *xsan_protocol_message_create(xsan_message_type_t type,
  */
 void xsan_protocol_message_destroy(xsan_message_t *msg);
 
+/**
+ * @brief Creates a complete xsan_message_t, including a structured payload
+ *        and an optional additional raw data block.
+ * Initializes the header and sets its checksum field. The header's payload_length
+ * will be the sum of structured_payload_len and additional_data_len.
+ *
+ * @param type The message type.
+ * @param transaction_id The transaction ID.
+ * @param structured_payload Pointer to the structured payload data (e.g., a request struct). Can be NULL if structured_payload_len is 0.
+ * @param structured_payload_len Length of the structured payload data.
+ * @param additional_data Pointer to the additional raw data block (e.g., disk block data). Can be NULL if additional_data_len is 0.
+ * @param additional_data_len Length of the additional raw data block.
+ * @return A pointer to the newly created xsan_message_t, or NULL on failure.
+ *         The returned message must be freed using xsan_protocol_message_destroy.
+ */
+xsan_message_t *xsan_protocol_message_create_with_data(
+    xsan_message_type_t type,
+    uint64_t transaction_id,
+    const void *structured_payload,
+    uint32_t structured_payload_len,
+    const void *additional_data,
+    uint32_t additional_data_len);
+
 #ifdef __cplusplus
 }
 #endif

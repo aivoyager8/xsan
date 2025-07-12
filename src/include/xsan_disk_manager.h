@@ -177,6 +177,55 @@ xsan_disk_group_t *xsan_disk_manager_find_disk_group_by_id(xsan_disk_manager_t *
 xsan_disk_group_t *xsan_disk_manager_find_disk_group_by_name(xsan_disk_manager_t *dm, const char *name);
 
 
+// --- Disk Group Space Allocation Operations ---
+
+/**
+ * @brief Allocates a set of physical extents from a disk group for a volume.
+ * This is a simplified initial implementation assuming mostly contiguous allocation
+ * or simple JBOD-like spanning.
+ *
+ * @param dm The disk manager instance.
+ * @param group_id ID of the disk group to allocate from.
+ * @param total_blocks_needed Total number of logical blocks the volume needs from this group
+ *                            (in terms of volume's logical block size).
+ * @param volume_logical_block_size The logical block size of the volume requesting space.
+ * @param extents_out Pointer to an array of xsan_volume_extent_mapping_t.
+ *                    On success, this will be allocated by the function and filled with
+ *                    the details of the allocated physical extents. The caller is responsible
+ *                    for freeing this array using XSAN_FREE().
+ * @param num_extents_out Pointer to store the number of extents in the allocated array.
+ * @return XSAN_OK on success.
+ *         XSAN_ERROR_INVALID_PARAM if inputs are invalid.
+ *         XSAN_ERROR_NOT_FOUND if the disk group is not found.
+ *         XSAN_ERROR_INSUFFICIENT_SPACE if the group doesn't have enough free space.
+ *         XSAN_ERROR_OUT_OF_MEMORY on memory allocation failure for extents_out.
+ */
+xsan_error_t xsan_disk_group_allocate_extents(xsan_disk_manager_t *dm,
+                                              xsan_group_id_t group_id,
+                                              uint64_t total_blocks_needed,
+                                              uint32_t volume_logical_block_size,
+                                              xsan_volume_extent_mapping_t **extents_out,
+                                              uint32_t *num_extents_out);
+
+/**
+ * @brief Frees a set of physical extents previously allocated to a volume from a disk group.
+ * This is a simplified initial implementation. True space reclamation for future reuse
+ * might be limited if not using a proper free space map (bitmap/freelist).
+ *
+ * @param dm The disk manager instance.
+ * @param group_id ID of the disk group from which space was allocated.
+ * @param extents Pointer to an array of xsan_volume_extent_mapping_t describing the extents to free.
+ * @param num_extents The number of extents in the array.
+ * @return XSAN_OK on success.
+ *         XSAN_ERROR_INVALID_PARAM if inputs are invalid.
+ *         XSAN_ERROR_NOT_FOUND if the disk group or specified physical disks within extents are not found.
+ */
+xsan_error_t xsan_disk_group_free_extents(xsan_disk_manager_t *dm,
+                                          xsan_group_id_t group_id,
+                                          const xsan_volume_extent_mapping_t *extents,
+                                          uint32_t num_extents);
+
+
 #ifdef __cplusplus
 }
 #endif

@@ -145,6 +145,12 @@ typedef struct xsan_disk_group {
 
     // Depending on type, other params like stripe_size, chunk_size etc. might be needed.
     // For PASSSTHROUGH/JBOD, these might not be relevant initially.
+    uint64_t allocated_bytes_in_group;      ///< Total bytes currently allocated to volumes from this group
+    // For simple contiguous allocation within the group's logical space:
+    uint64_t next_alloc_logical_block_in_group; ///< Next available logical block offset within the group's aggregated space
+                                                ///< (expressed in terms of the smallest physical block size of member disks, or a common size)
+    uint32_t group_logical_block_size;      ///< The block size used for group's logical space tracking (e.g., smallest physical block size)
+
 
     // Linkage for disk manager's internal list
     struct xsan_disk_group *next;
@@ -191,6 +197,44 @@ typedef struct xsan_volume {
 
     // next/prev pointers are not part of the data structure if xsan_list stores void*
 } xsan_volume_t;
+
+
+// --- Volume Allocation and Mapping Metadata ---
+
+/**
+ * @brief Describes a single physical extent on a disk that is part of a volume's allocation.
+ */
+typedef struct {
+    xsan_disk_id_t disk_id;         ///< XSAN ID of the physical disk where this extent resides.
+    uint64_t start_block_on_disk;   ///< Starting LBA of this extent on the physical disk.
+    uint64_t num_blocks_on_disk;    ///< Number of blocks in this extent on this disk.
+    uint64_t volume_start_lba;      ///< The logical LBA within the volume that this extent corresponds to.
+                                    ///< (e.g., if volume is 1000 blocks, and this extent covers blocks 200-299 of the volume,
+                                    ///< then volume_start_lba would be 200, and num_blocks_on_disk would map to 100 volume blocks).
+                                    ///< If num_blocks_on_disk maps to fewer volume blocks due to block size differences,
+                                    ///< this LBA is still in terms of volume's logical blocks.
+} xsan_volume_extent_mapping_t;
+
+// Define a reasonable maximum number of extents a single volume might be broken into.
+// For simple linear or striped (across few disks) volumes, this can be small.
+// For highly fragmented or very large JBOD-spanned volumes, it might be larger.
+#define XSAN_MAX_EXTENTS_PER_VOLUME 8
+
+/**
+ * @brief Metadata describing how a volume is allocated across physical disk extents.
+ * This structure would typically be serialized (e.g., to JSON) and stored in a K/V store
+ * with a key like "volmap:<volume_uuid>".
+ */
+typedef struct {
+    xsan_volume_id_t volume_id;     ///< The ID of the volume this allocation map belongs to.
+    xsan_group_id_t disk_group_id;  ///< The ID of the disk group from which space was allocated.
+    uint32_t num_extents;           ///< Number of actual extents used by this volume.
+    xsan_volume_extent_mapping_t extents[XSAN_MAX_EXTENTS_PER_VOLUME]; ///< Array of extent mappings.
+    uint64_t total_volume_blocks_logical; ///< Total logical blocks in the volume (for consistency check).
+    uint32_t volume_logical_block_size;   ///< Logical block size of the volume (for consistency).
+    // bool is_thin_provisioned;    // Already in xsan_volume_t, but could be here for map-specific logic
+    // uint64_t last_updated_time;  // Optional: for tracking changes
+} xsan_volume_allocation_meta_t;
 
 
 #ifdef __cplusplus

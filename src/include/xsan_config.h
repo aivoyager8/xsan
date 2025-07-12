@@ -63,6 +63,8 @@ typedef struct xsan_node_config {
     bool enable_ssl;                /* 是否启用SSL */
     char ssl_cert_file[256];        /* SSL证书文件 */
     char ssl_key_file[256];         /* SSL私钥文件 */
+    char nvmf_target_nqn[XSAN_MAX_NAME_LEN]; /* Optional NQN for NVMe-oF target */
+    char nvmf_listen_port[16];        /* Optional NVMe-oF listen port (as string) */
 } xsan_node_config_t;
 
 /* 存储配置 */
@@ -79,10 +81,14 @@ typedef struct xsan_storage_config {
     bool enable_checksums;          /* 是否启用校验和 */
 } xsan_storage_config_t;
 
+#include "xsan_types.h" // For xsan_node_t, xsan_uuid_t
+
+#define XSAN_MAX_SEED_NODES 32 // Define max seed nodes for config
+
 /* 集群配置 */
 typedef struct xsan_cluster_config {
     char cluster_name[128];         /* 集群名称 */
-    char *seed_nodes[32];           /* 种子节点列表 */
+    xsan_node_t seed_nodes[XSAN_MAX_SEED_NODES]; /* 解析后的种子节点信息 */
     size_t seed_node_count;         /* 种子节点数量 */
     size_t min_nodes;               /* 最小节点数 */
     size_t max_nodes;               /* 最大节点数 */

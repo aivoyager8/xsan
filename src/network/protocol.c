@@ -275,3 +275,71 @@ void xsan_protocol_message_destroy(xsan_message_t *msg) {
     }
     XSAN_FREE(msg);
 }
+
+xsan_message_t *xsan_protocol_message_create_with_data(
+    xsan_message_type_t type,
+    uint64_t transaction_id,
+    const void *structured_payload,
+    uint32_t structured_payload_len,
+    const void *additional_data,
+    uint32_t additional_data_len) {
+
+    uint64_t total_payload_length_64 = (uint64_t)structured_payload_len + additional_data_len;
+    if (total_payload_length_64 > XSAN_PROTOCOL_MAX_PAYLOAD_SIZE) {
+        // Log error: total payload too large
+        return NULL;
+    }
+    uint32_t total_payload_length = (uint32_t)total_payload_length_64;
+
+    xsan_message_t *msg = (xsan_message_t *)XSAN_MALLOC(sizeof(xsan_message_t));
+    if (!msg) {
+        return NULL;
+    }
+
+    xsan_protocol_header_init(&msg->header, type, total_payload_length, transaction_id);
+
+    if (total_payload_length > 0) {
+        msg->payload = (unsigned char *)XSAN_MALLOC(total_payload_length);
+        if (!msg->payload) {
+            XSAN_FREE(msg);
+            return NULL;
+        }
+
+        unsigned char *ptr = msg->payload;
+        if (structured_payload && structured_payload_len > 0) {
+            memcpy(ptr, structured_payload, structured_payload_len);
+            ptr += structured_payload_len;
+        }
+        if (additional_data && additional_data_len > 0) {
+            memcpy(ptr, additional_data, additional_data_len);
+        }
+    } else {
+        msg->payload = NULL;
+    }
+
+    // Calculate checksum
+    unsigned char serialized_header_for_calc[XSAN_MESSAGE_HEADER_SIZE];
+    if (xsan_protocol_header_serialize(&msg->header, serialized_header_for_calc) != XSAN_OK) {
+        if(msg->payload) XSAN_FREE(msg->payload);
+        XSAN_FREE(msg);
+        return NULL;
+    }
+
+    size_t data_to_checksum_len = XSAN_MESSAGE_HEADER_SIZE + msg->header.payload_length;
+    unsigned char *checksum_data_buf = (unsigned char *)XSAN_MALLOC(data_to_checksum_len);
+    if (!checksum_data_buf) {
+        if(msg->payload) XSAN_FREE(msg->payload);
+        XSAN_FREE(msg);
+        return NULL;
+    }
+
+    memcpy(checksum_data_buf, serialized_header_for_calc, XSAN_MESSAGE_HEADER_SIZE);
+    if (msg->payload && msg->header.payload_length > 0) {
+        memcpy(checksum_data_buf + XSAN_MESSAGE_HEADER_SIZE, msg->payload, msg->header.payload_length);
+    }
+
+    msg->header.checksum = xsan_protocol_calculate_checksum(checksum_data_buf, data_to_checksum_len);
+    XSAN_FREE(checksum_data_buf);
+
+    return msg;
+}

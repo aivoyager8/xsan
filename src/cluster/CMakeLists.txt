@@ -2,6 +2,7 @@
 # 集群管理模块 - 依赖 utils, common, network, storage 模块
 
 set(XSAN_CLUSTER_SOURCES
+    xsan_cluster.c # Added: Contains xsan_get_local_node_info and stubs
     node_discovery.c
     heartbeat.c
     node_manager.c

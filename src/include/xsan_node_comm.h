@@ -35,6 +35,16 @@ typedef void (*xsan_node_message_handler_cb_t)(struct spdk_sock *sock,
                                                void *handler_cb_arg);
 
 /**
+ * @brief Callback for a specific message type, used with the registration mechanism.
+ * @param conn_ctx Context of the connection from which the message was received.
+ * @param msg The fully assembled message. Callee is responsible for destroying it.
+ * @param specific_cb_arg User-provided argument during handler registration.
+ */
+typedef void (*xsan_specific_message_handler_cb_t)(struct xsan_connection_ctx *conn_ctx, // Pass conn_ctx
+                                                   xsan_message_t *msg,
+                                                   void *specific_cb_arg);
+
+/**
  * @brief Callback invoked when a connection attempt (initiated by xsan_node_comm_connect) completes.
  *
  * @param sock The SPDK socket for the connection. This is valid and usable if status is 0 (success).
@@ -73,8 +83,22 @@ typedef void (*xsan_node_send_cb_t)(int status, void *send_cb_arg);
  * @return XSAN_OK on success, or an xsan_error_t code on failure.
  */
 xsan_error_t xsan_node_comm_init(const char *listen_ip, uint16_t listen_port,
-                                 xsan_node_message_handler_cb_t msg_handler_cb,
+                                 xsan_node_message_handler_cb_t msg_handler_cb, // This can be a generic dispatcher
                                  void *handler_cb_arg);
+
+/**
+ * @brief Registers a handler for a specific XSAN message type.
+ * If a handler is already registered for this type, it will be overwritten.
+ *
+ * @param type The message type to register a handler for.
+ * @param specific_handler The callback function to handle this message type.
+ * @param specific_cb_arg User-defined argument to be passed to the specific_handler.
+ * @return XSAN_OK on success, XSAN_ERROR_INVALID_PARAM if type is invalid or handler is NULL,
+ *         XSAN_ERROR_NOT_INITIALIZED if the comm module is not initialized.
+ */
+xsan_error_t xsan_node_comm_register_message_handler(xsan_message_type_t type,
+                                                     xsan_specific_message_handler_cb_t specific_handler,
+                                                     void *specific_cb_arg);
 
 /**
  * @brief Finalizes and cleans up the XSAN Node Communication module.
