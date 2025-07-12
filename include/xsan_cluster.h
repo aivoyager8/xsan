@@ -115,4 +115,36 @@ xsan_error_t xsan_get_local_node_info(xsan_node_id_t *node_id_out,
                                       char *ip_buf, size_t ip_buf_len,
                                       uint16_t *port_out);
 
+/**
+ * @brief Retrieves a list of all currently known cluster nodes.
+ * The primary source for this list is initially the seed nodes from configuration.
+ * The caller is responsible for freeing the allocated `nodes_array_out` using
+ * `xsan_cluster_free_known_nodes_array`.
+ *
+ * @param nodes_array_out Pointer to `xsan_node_t*`. On success, this will point to an
+ *                        allocated array of `xsan_node_t` structures.
+ * @param count_out Pointer to a size_t where the number of nodes in the array will be stored.
+ * @return XSAN_OK on success, XSAN_ERROR_NOT_INITIALIZED if cluster not ready,
+ *         XSAN_ERROR_OUT_OF_MEMORY on allocation failure.
+ */
+xsan_error_t xsan_cluster_get_all_known_nodes(xsan_node_t **nodes_array_out, size_t *count_out);
+
+/**
+ * @brief Frees the array of xsan_node_t structures allocated by xsan_cluster_get_all_known_nodes.
+ *
+ * @param nodes_array The array to free.
+ */
+void xsan_cluster_free_known_nodes_array(xsan_node_t *nodes_array);
+
+/**
+ * @brief Gets information for a specific known node by its XSAN Node ID.
+ *
+ * @param node_id The UUID of the node to find.
+ * @param node_info_out Pointer to an xsan_node_t structure to be filled with the node's information.
+ * @return XSAN_OK if the node is found, XSAN_ERROR_NOT_FOUND if not found,
+ *         XSAN_ERROR_NOT_INITIALIZED if cluster not ready.
+ */
+xsan_error_t xsan_cluster_get_node_by_id(xsan_node_id_t node_id, xsan_node_t *node_info_out);
+
+
 #endif /* XSAN_CLUSTER_H */

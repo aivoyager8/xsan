@@ -6,9 +6,13 @@
 
 #include "xsan_config.h"
 #include "xsan_memory.h"
+#include "xsan_config.h"
+#include "xsan_memory.h"
 #include "xsan_string_utils.h"
 #include "xsan_log.h"
 #include "xsan_error.h"
+#include "xsan_types.h" // For xsan_node_t, INET_ADDRSTRLEN, XSAN_MAX_NAME_LEN
+#include "spdk/uuid.h"  // For spdk_uuid_parse, spdk_uuid_get_string
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -642,10 +646,78 @@ bool xsan_config_load_cluster_config(xsan_config_t *config, xsan_cluster_config_
     
     /* 解析种子节点列表 */
     const char *seed_nodes_str = xsan_config_get_string(config, "cluster.seed_nodes", "");
+    cluster_config->seed_node_count = 0; // Initialize count
+
     if (strlen(seed_nodes_str) > 0) {
-        cluster_config->seed_node_count = xsan_strsplit(seed_nodes_str, ",", 
-                                                       cluster_config->seed_nodes, 
-                                                       sizeof(cluster_config->seed_nodes) / sizeof(char*));
+        char *str_copy = xsan_strdup(seed_nodes_str);
+        if (!str_copy) {
+            XSAN_LOG_ERROR("Failed to duplicate seed_nodes string for parsing.");
+            return false; // Or handle error differently
+        }
+
+        char *token = strtok(str_copy, ", \t\n"); // Split by comma and whitespace
+        while (token && cluster_config->seed_node_count < XSAN_MAX_SEED_NODES) {
+            char *uuid_part = token;
+            char *at_ptr = strchr(token, '@');
+            char *ip_part = NULL;
+            char *colon_ptr = NULL;
+            uint16_t port = 0;
+
+            if (at_ptr) {
+                *at_ptr = '\0'; // Null-terminate UUID string
+                ip_part = at_ptr + 1;
+                colon_ptr = strrchr(ip_part, ':'); // Use strrchr to find the last colon (for IPv6)
+
+                if (colon_ptr) {
+                    *colon_ptr = '\0'; // Null-terminate IP string
+                    char *port_str = colon_ptr + 1;
+                    long long_port = 0;
+                    if (xsan_str_to_long(port_str, &long_port) && long_port > 0 && long_port <= 65535) {
+                        port = (uint16_t)long_port;
+                    } else {
+                        XSAN_LOG_WARN("Invalid port string '%s' in seed node entry: %s. Skipping.", port_str, token);
+                        token = strtok(NULL, ", \t\n");
+                        continue;
+                    }
+                } else {
+                    XSAN_LOG_WARN("Port missing in seed node entry: %s. Skipping.", token);
+                    token = strtok(NULL, ", \t\n");
+                    continue;
+                }
+            } else {
+                XSAN_LOG_WARN("Invalid format for seed node entry (missing '@'): %s. Skipping.", token);
+                token = strtok(NULL, ", \t\n");
+                continue;
+            }
+
+            xsan_node_t *current_seed_node = &cluster_config->seed_nodes[cluster_config->seed_node_count];
+            memset(current_seed_node, 0, sizeof(xsan_node_t)); // Initialize
+
+            // Parse UUID
+            if (spdk_uuid_parse((struct spdk_uuid *)&current_seed_node->id.data[0], uuid_part) != 0) {
+                XSAN_LOG_WARN("Failed to parse UUID string '%s' for seed node. Skipping entry: %s", uuid_part, token);
+                token = strtok(NULL, ", \t\n");
+                continue;
+            }
+
+            // Copy IP and Port (using storage_addr for data/replication, mgmt_addr could be same or different)
+            xsan_strcpy_safe(current_seed_node->storage_addr.ip, ip_part, INET_ADDRSTRLEN);
+            current_seed_node->storage_addr.port = port;
+            // For simplicity, also copy to hostname and mgmt_addr if needed, or set them distinctly if config supports it
+            xsan_strcpy_safe(current_seed_node->hostname, ip_part, XSAN_MAX_NAME_LEN); // Or a configured name if available
+            memcpy(&current_seed_node->mgmt_addr, &current_seed_node->storage_addr, sizeof(xsan_address_t));
+
+
+            XSAN_LOG_DEBUG("Parsed seed node %zu: ID=%s, IP=%s, Port=%u",
+                           cluster_config->seed_node_count,
+                           spdk_uuid_get_string((struct spdk_uuid*)&current_seed_node->id.data[0]), // Need spdk/uuid.h for this
+                           current_seed_node->storage_addr.ip,
+                           current_seed_node->storage_addr.port);
+
+            cluster_config->seed_node_count++;
+            token = strtok(NULL, ", \t\n");
+        }
+        xsan_free(str_copy);
     }
     
     cluster_config->min_nodes = xsan_config_get_int(config, "cluster.min_nodes", DEFAULT_MIN_NODES);

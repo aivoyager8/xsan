@@ -285,10 +285,23 @@ static void xsan_node_main_spdk_thread_start(void *arg1, int spdk_startup_rc) {
     }
 
     // Initialize other XSAN managers that depend on config or SPDK
+
+    // Initialize Cluster module (depends on global config g_cluster_config being populated)
+    if (xsan_cluster_init(config_file_to_load) != XSAN_OK) { // Pass config path for context, though current init uses globals
+        XSAN_LOG_FATAL("Failed to initialize XSAN Cluster Manager. Shutting down.");
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+        xsan_spdk_manager_request_app_stop();
+        return;
+    }
+
     xsan_disk_manager_t *disk_manager = NULL;
-    if (xsan_disk_manager_init(&disk_manager) != XSAN_OK) { // Assumes disk_manager_init uses global config or has own way
+    if (xsan_disk_manager_init(&disk_manager) != XSAN_OK) {
         XSAN_LOG_FATAL("Failed to initialize XSAN Disk Manager. Shutting down.");
-        // ... cleanup config and stop ...
+        xsan_cluster_shutdown();
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+        xsan_spdk_manager_request_app_stop();
         return;
     }
     xsan_disk_manager_scan_and_register_bdevs(disk_manager);
@@ -297,81 +310,61 @@ static void xsan_node_main_spdk_thread_start(void *arg1, int spdk_startup_rc) {
     xsan_volume_manager_t *volume_manager = NULL;
     if (xsan_volume_manager_init(disk_manager, &volume_manager) != XSAN_OK) {
         XSAN_LOG_FATAL("Failed to initialize XSAN Volume Manager. Shutting down.");
-        // ... cleanup disk_manager, config and stop ...
+        xsan_disk_manager_fini(&disk_manager);
+        xsan_cluster_shutdown();
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+        xsan_spdk_manager_request_app_stop();
         return;
     }
 
     // Initialize node communication server (listener)
-    // The _xsan_node_test_message_handler is a placeholder; a real dispatcher is needed.
-    // Pass volume_manager as cb_arg for the handler to use.
-    // TODO: Ensure g_local_node_config.bind_address and .port are valid before use.
-    if (xsan_node_comm_server_start(g_local_node_config.bind_address, g_local_node_config.port, _xsan_node_test_message_handler, volume_manager) != XSAN_OK) {
-        XSAN_LOG_FATAL("Failed to start XSAN node communication server on %s:%u. Shutting down.",
+    // The global_app_msg_handler_cb in xsan_node_comm_init can be NULL if all messages are handled by specific handlers.
+    if (xsan_node_comm_init(g_local_node_config.bind_address, g_local_node_config.port, NULL, NULL) != XSAN_OK) {
+         XSAN_LOG_FATAL("Failed to initialize XSAN node communication server on %s:%u. Shutting down.",
                        g_local_node_config.bind_address, g_local_node_config.port);
-        // ... cleanup volume_manager, disk_manager, config and stop ...
+        xsan_volume_manager_fini(&volume_manager);
+        xsan_disk_manager_fini(&disk_manager);
+        xsan_cluster_shutdown();
+        xsan_config_destroy(g_xsan_config);
+        g_xsan_config = NULL;
+        xsan_spdk_manager_request_app_stop();
         return;
     }
+    // Register specific handlers for replica operations
+    if (xsan_node_comm_register_message_handler(XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_REQ,
+                                                xsan_volume_manager_handle_replica_write_req,
+                                                volume_manager) != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to register replica write request handler. Shutting down.");
+        // ... cleanup and stop ...
+        return;
+    }
+    if (xsan_node_comm_register_message_handler(XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ,
+                                                xsan_volume_manager_handle_replica_read_req,
+                                                volume_manager) != XSAN_OK) {
+        XSAN_LOG_FATAL("Failed to register replica read request handler. Shutting down.");
+        // ... cleanup and stop ...
+        return;
+    }
+    // Note: _xsan_node_test_message_handler was the old global handler.
+    // If it's still needed for other message types, it could be registered for those,
+    // or xsan_node_comm_init's global handler could be set to it if specific handlers are not found.
+    // For now, assuming replica ops are the primary ones handled via specific registration.
 
 
     XSAN_LOG_INFO("XSAN Node subsystems initialized. Running test sequences or waiting for events...");
 
-    // --- Example Test Sequence (from original code) ---
-    // This section should be conditional or replaced by actual operational logic.
-    // For now, keeping it to ensure the rest of the file structure is similar.
-    memset(&g_async_io_test_controller, 0, sizeof(g_async_io_test_controller));
-    g_async_io_test_controller.vm = volume_manager;
-    g_async_io_test_controller.dm = disk_manager;
-    // ... (rest of test setup) ...
-    xsan_volume_t *vol_to_test = NULL;
-    if (g_async_io_test_controller.vm && !spdk_uuid_is_null((struct spdk_uuid*)&g_async_io_test_controller.volume_id_to_test.data[0])) {
-         vol_to_test = xsan_volume_get_by_id(g_async_io_test_controller.vm, g_async_io_test_controller.volume_id_to_test);
-    }
-    // For testing, find first available volume if a specific one isn't set up for test
-    if(!vol_to_test && g_async_io_test_controller.vm) {
-        xsan_volume_t **all_vols = NULL; int vol_count = 0;
-        if(xsan_volume_list_all(g_async_io_test_controller.vm, &all_vols, &vol_count) == XSAN_OK && vol_count > 0) {
-            vol_to_test = all_vols[0]; // Test with the first volume found
-            memcpy(&g_async_io_test_controller.volume_id_to_test, &vol_to_test->id, sizeof(xsan_volume_id_t));
-            XSAN_LOG_INFO("Async IO Test will run on automatically selected volume: %s", vol_to_test->name);
-        }
-        if(all_vols) xsan_volume_manager_free_volume_pointer_list(all_vols);
-    }
+    // Run End-to-End Core Logic Tests
+    _run_e2e_core_logic_tests(disk_manager, volume_manager);
 
-    if (vol_to_test) {
-        _start_async_io_test_on_volume(&g_async_io_test_controller, vol_to_test);
-    } else {
-        XSAN_LOG_WARN("No volume found or specified for async IO test.");
-        g_async_io_test_controller.test_finished_signal = true; // Skip test
-    }
-    // --- End Example Test Sequence ---
-
-
-    // Main loop for this SPDK thread could poll for application events
-    // or simply rely on other SPDK threads/reactors for network events, etc.
-    // For now, we'll assume the test sequence runs, and then we might wait or exit.
-    // In a real server, this thread would likely enter a polling loop or yield.
-    uint64_t idle_check_period_us = 1000000; // 1 second
-    uint64_t next_idle_check_time = spdk_get_ticks() + idle_check_period_us * spdk_get_ticks_hz() / SPDK_SEC_TO_USEC;
-
-    while (!g_async_io_test_controller.test_finished_signal) { // Example condition to keep running
-        // Do other periodic work if needed
-        if (spdk_get_ticks() > next_idle_check_time) {
-            XSAN_LOG_DEBUG("XSAN main SPDK thread idle tick...");
-            // Check for shutdown signal, etc.
-            // For example: if (xsan_spdk_manager_is_app_stopping()) break;
-            next_idle_check_time = spdk_get_ticks() + idle_check_period_us * spdk_get_ticks_hz() / SPDK_SEC_TO_USEC;
-        }
-        // Yield or poll briefly if this thread is also handling network using spdk_sock_group_poll
-        // spdk_thread_poll(spdk_get_thread(), 0, 0); // Process events on this thread
-        usleep(10000); // Sleep briefly to avoid busy-waiting if no other work
-    }
 
     XSAN_LOG_INFO("XSAN Node main SPDK thread tasks complete. Cleaning up XSAN subsystems...");
 
     // Cleanup XSAN subsystems
-    xsan_node_comm_server_stop(); // Stop listening for incoming connections
+    xsan_node_comm_fini(); // Updated to reflect new comm_init/fini
     xsan_volume_manager_fini(&volume_manager);
     xsan_disk_manager_fini(&disk_manager);
+    xsan_cluster_shutdown(); // Shutdown cluster module
 
     if (g_xsan_config) {
         xsan_config_destroy(g_xsan_config);
@@ -380,6 +373,162 @@ static void xsan_node_main_spdk_thread_start(void *arg1, int spdk_startup_rc) {
     XSAN_LOG_INFO("XSAN subsystems cleaned up. Requesting SPDK application stop.");
     xsan_spdk_manager_request_app_stop(); // Signal SPDK app to stop all reactors
 }
+
+
+// --- E2E Test Helper Structures and Callbacks ---
+typedef struct {
+    bool completed;
+    xsan_error_t status;
+    char *buffer; // For reads
+    const char *original_buffer_for_verify; // For comparison after read
+    uint64_t len;
+    const char* test_name;
+    struct spdk_thread *thread; // Thread to signal if polling
+} xsan_e2e_io_test_ctx_t;
+
+static void _e2e_io_completion_cb(void *cb_arg, xsan_error_t status) {
+    xsan_e2e_io_test_ctx_t *ctx = (xsan_e2e_io_test_ctx_t *)cb_arg;
+    ctx->completed = true;
+    ctx->status = status;
+
+    XSAN_LOG_INFO("E2E Test '%s' I/O completed with status: %s (%d)", ctx->test_name, xsan_error_string(status), status);
+
+    if (status == XSAN_OK && ctx->original_buffer_for_verify && ctx->buffer && ctx->len > 0) {
+        if (memcmp(ctx->original_buffer_for_verify, ctx->buffer, ctx->len) == 0) {
+            XSAN_LOG_INFO("E2E Test '%s': Read data verification PASSED.", ctx->test_name);
+        } else {
+            XSAN_LOG_ERROR("E2E Test '%s': Read data verification FAILED!", ctx->test_name);
+            // Hex dump for debugging small differences
+            // xsan_hex_dump("Original", ctx->original_buffer_for_verify, XSAN_MIN(ctx->len, 64));
+            // xsan_hex_dump("Read Back", ctx->buffer, XSAN_MIN(ctx->len, 64));
+            ctx->status = XSAN_ERROR_TEST_VERIFY_FAILED;
+        }
+    }
+    if (ctx->thread) { // If polling, signal the polling loop.
+        // spdk_thread_send_msg(ctx->thread, some_msg_to_break_poll, NULL); // Needs a message mechanism
+    }
+}
+
+static void _run_e2e_core_logic_tests(xsan_disk_manager_t *dm, xsan_volume_manager_t *vm) {
+    XSAN_LOG_INFO("===== Starting E2E Core Logic Tests =====");
+    xsan_error_t err;
+
+    // Test Parameters
+    const char *test_dg_name = "TestDiskGroup1";
+    const char *bdev_names[] = {"Malloc0", "Malloc1"}; // Ensure these are configured in SPDK JSON conf
+    int num_bdevs_for_dg = 2;
+    xsan_group_id_t dg_id;
+
+    const char *test_vol_name = "TestVolume1";
+    uint64_t test_vol_size_mb = 20; // 20 MB
+    uint64_t test_vol_size_bytes = test_vol_size_mb * 1024 * 1024;
+    uint32_t test_vol_block_size = 4096;
+    uint32_t test_vol_ftt = 0; // Single replica for basic I/O test
+    xsan_volume_id_t vol_id;
+    xsan_volume_t *vol = NULL;
+
+    // --- Test Disk Group Creation ---
+    XSAN_LOG_INFO("[E2E Test] Creating disk group '%s'...", test_dg_name);
+    err = xsan_disk_manager_disk_group_create(dm, test_dg_name, XSAN_DISK_GROUP_TYPE_JBOD, bdev_names, num_bdevs_for_dg, &dg_id);
+    if (err != XSAN_OK) {
+        XSAN_LOG_ERROR("[E2E Test] Failed to create disk group '%s': %s", test_dg_name, xsan_error_string(err));
+        goto test_end;
+    }
+    XSAN_LOG_INFO("[E2E Test] Disk group '%s' (ID: %s) created successfully.", test_dg_name, spdk_uuid_get_string((struct spdk_uuid*)&dg_id.data[0]));
+
+    // --- Test Volume Creation ---
+    XSAN_LOG_INFO("[E2E Test] Creating volume '%s' (Size: %lu MB, FTT: %u)...", test_vol_name, test_vol_size_mb, test_vol_ftt);
+    err = xsan_volume_create(vm, test_vol_name, test_vol_size_bytes, dg_id, test_vol_block_size, false /*thick*/, test_vol_ftt, &vol_id);
+    if (err != XSAN_OK) {
+        XSAN_LOG_ERROR("[E2E Test] Failed to create volume '%s': %s", test_vol_name, xsan_error_string(err));
+        goto cleanup_dg;
+    }
+    vol = xsan_volume_get_by_id(vm, vol_id); // Get the managed instance
+    if (!vol) {
+        XSAN_LOG_ERROR("[E2E Test] Volume '%s' created but get_by_id failed!", test_vol_name);
+        goto cleanup_dg; // vol_id might be valid for delete if create partially succeeded in metadata
+    }
+    XSAN_LOG_INFO("[E2E Test] Volume '%s' (ID: %s) created successfully. State: %d", test_vol_name, spdk_uuid_get_string((struct spdk_uuid*)&vol_id.data[0]), vol->state);
+
+
+    // --- Test LBA Mapping (simple check) ---
+    xsan_disk_id_t mapped_disk_id;
+    uint64_t mapped_phys_lba;
+    uint32_t mapped_phys_block_size;
+    uint64_t test_lba = 0; // Test mapping for LBA 0
+    XSAN_LOG_INFO("[E2E Test] Mapping LBA %lu for volume '%s'...", test_lba, test_vol_name);
+    err = xsan_volume_map_lba_to_physical(vm, vol_id, test_lba, &mapped_disk_id, &mapped_phys_lba, &mapped_phys_block_size);
+    if (err != XSAN_OK) {
+        XSAN_LOG_ERROR("[E2E Test] Failed to map LBA %lu for volume '%s': %s", test_lba, test_vol_name, xsan_error_string(err));
+    } else {
+        XSAN_LOG_INFO("[E2E Test] LBA %lu maps to DiskID: %s, PhysLBA: %lu, PhysBlkSize: %u",
+                      test_lba, spdk_uuid_get_string((struct spdk_uuid*)&mapped_disk_id.data[0]), mapped_phys_lba, mapped_phys_block_size);
+        // TODO: Add more specific verification based on known Malloc0/Malloc1 properties if needed
+    }
+
+    // --- Test Basic I/O ---
+    uint32_t io_size = test_vol_block_size * 2; // Write 2 blocks
+    char *write_buf = xsan_bdev_dma_malloc(io_size, test_vol_block_size); // Assuming test_vol_block_size is suitable alignment
+    char *read_buf = xsan_bdev_dma_malloc(io_size, test_vol_block_size);
+    if (!write_buf || !read_buf) {
+        XSAN_LOG_ERROR("[E2E Test] Failed to allocate DMA buffers for I/O test.");
+        if(write_buf) xsan_bdev_dma_free(write_buf);
+        if(read_buf) xsan_bdev_dma_free(read_buf);
+        goto cleanup_vol;
+    }
+    for (uint32_t i = 0; i < io_size; ++i) write_buf[i] = (char)(i % 256);
+    memset(read_buf, 0xAA, io_size);
+
+    xsan_e2e_io_test_ctx_t write_io_ctx = {
+        .completed = false, .status = XSAN_OK, .buffer = NULL, .original_buffer_for_verify = NULL, .len = io_size, .test_name = "WriteTest", .thread = spdk_get_thread()
+    };
+    xsan_e2e_io_test_ctx_t read_io_ctx = {
+        .completed = false, .status = XSAN_OK, .buffer = read_buf, .original_buffer_for_verify = write_buf, .len = io_size, .test_name = "ReadVerifyTest", .thread = spdk_get_thread()
+    };
+    uint64_t io_offset = 0; // Write to start of volume
+
+    XSAN_LOG_INFO("[E2E Test] Submitting async write (offset %lu, len %u) to volume '%s'...", io_offset, io_size, test_vol_name);
+    err = xsan_volume_write_async(vm, vol_id, io_offset, io_size, write_buf, _e2e_io_completion_cb, &write_io_ctx);
+    if (err != XSAN_OK) {
+        XSAN_LOG_ERROR("[E2E Test] Failed to submit write: %s", xsan_error_string(err));
+    } else {
+        while (!write_io_ctx.completed) { spdk_thread_poll(write_io_ctx.thread, 0, 0); usleep(100); } // Simple poll
+        if (write_io_ctx.status == XSAN_OK) {
+            XSAN_LOG_INFO("[E2E Test] Write successful. Submitting async read...");
+            err = xsan_volume_read_async(vm, vol_id, io_offset, io_size, read_buf, _e2e_io_completion_cb, &read_io_ctx);
+            if (err != XSAN_OK) {
+                XSAN_LOG_ERROR("[E2E Test] Failed to submit read: %s", xsan_error_string(err));
+            } else {
+                while (!read_io_ctx.completed) { spdk_thread_poll(read_io_ctx.thread, 0, 0); usleep(100); }
+                if (read_io_ctx.status != XSAN_OK && read_io_ctx.status != XSAN_ERROR_TEST_VERIFY_FAILED) { // Check if read op itself failed
+                     XSAN_LOG_ERROR("[E2E Test] Read operation failed with: %s", xsan_error_string(read_io_ctx.status));
+                }
+            }
+        } else {
+             XSAN_LOG_ERROR("[E2E Test] Write operation failed with: %s", xsan_error_string(write_io_ctx.status));
+        }
+    }
+    xsan_bdev_dma_free(write_buf);
+    xsan_bdev_dma_free(read_buf);
+
+cleanup_vol:
+    XSAN_LOG_INFO("[E2E Test] Deleting volume '%s'...", test_vol_name);
+    err = xsan_volume_delete(vm, vol_id);
+    if (err != XSAN_OK) XSAN_LOG_ERROR("[E2E Test] Failed to delete volume '%s': %s", test_vol_name, xsan_error_string(err));
+    else XSAN_LOG_INFO("[E2E Test] Volume '%s' deleted.", test_vol_name);
+
+cleanup_dg:
+    XSAN_LOG_INFO("[E2E Test] Deleting disk group '%s'...", test_dg_name);
+    err = xsan_disk_manager_disk_group_delete(dm, dg_id);
+    if (err != XSAN_OK) XSAN_LOG_ERROR("[E2E Test] Failed to delete disk group '%s': %s", test_dg_name, xsan_error_string(err));
+    else XSAN_LOG_INFO("[E2E Test] Disk group '%s' deleted.", test_dg_name);
+
+test_end:
+    XSAN_LOG_INFO("===== E2E Core Logic Tests Finished =====");
+    // Signal main loop in xsan_node_main_spdk_thread_start that tests are done
+    g_async_io_test_controller.test_finished_signal = true; // Reuse this global for now to stop the main loop
+}
+
 
 static void print_usage(const char *program_name) {
     printf("Usage: %s [options]\n", program_name);

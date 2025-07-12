@@ -187,6 +187,36 @@ xsan_error_t xsan_volume_write_async(xsan_volume_manager_t *vm,
                                      void *user_cb_arg);
 
 
+// --- Replica Request Handlers (to be called by node_comm dispatcher) ---
+
+/**
+ * @brief Handles an incoming XSAN_MSG_TYPE_REPLICA_WRITE_BLOCK_REQ message.
+ * This function is expected to be registered with the xsan_node_comm module.
+ * It processes the write request, performs the local write, and sends a response.
+ *
+ * @param conn_ctx The connection context from which the message was received.
+ *                 Can be used to send a response via conn_ctx->sock.
+ * @param msg The received xsan_message_t. The handler is responsible for destroying it.
+ * @param cb_arg_vol_mgr The xsan_volume_manager_t instance, passed during handler registration.
+ */
+void xsan_volume_manager_handle_replica_write_req(struct xsan_connection_ctx *conn_ctx,
+                                                  xsan_message_t *msg,
+                                                  void *cb_arg_vol_mgr);
+
+/**
+ * @brief Handles an incoming XSAN_MSG_TYPE_REPLICA_READ_BLOCK_REQ message.
+ * This function is expected to be registered with the xsan_node_comm module.
+ * It processes the read request, performs the local read, and sends a response with data.
+ *
+ * @param conn_ctx The connection context.
+ * @param msg The received xsan_message_t. The handler is responsible for destroying it.
+ * @param cb_arg_vol_mgr The xsan_volume_manager_t instance.
+ */
+void xsan_volume_manager_handle_replica_read_req(struct xsan_connection_ctx *conn_ctx,
+                                                 xsan_message_t *msg,
+                                                 void *cb_arg_vol_mgr);
+
+
 // Potentially add functions for resizing volumes, snapshots, etc. in the future.
 
 #ifdef __cplusplus

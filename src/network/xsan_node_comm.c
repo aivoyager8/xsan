@@ -57,8 +57,15 @@ static struct {
     pthread_mutex_t active_connections_lock;
 
     bool module_initialized;
+
+    // Array for specific message handlers
+    xsan_specific_message_handler_cb_t specific_handlers[XSAN_MSG_TYPE_MAX];
+    void *specific_handler_args[XSAN_MSG_TYPE_MAX];
 } g_node_comm_ctx;
 
+
+// Forward declaration for the function that will handle connected client sockets
+static void _xsan_client_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock);
 
 static int _xsan_comm_poller_fn(void *arg);
 static void _xsan_comm_sock_event_callback(void *cb_arg, struct spdk_sock_group *group, struct spdk_sock *sock);
@@ -80,15 +87,25 @@ static void _format_peer_addr(struct spdk_sock *sock, char *buf, size_t len);
 #endif
 
 
+// Context for an outstanding client connect operation
+typedef struct xsan_pending_connect_op {
+    xsan_node_connect_cb_t user_cb;
+    void *user_cb_arg;
+    struct spdk_sock *sock_in_progress; // SPDK socket being connected
+    char target_addr_str_for_log[XSAN_COMM_MAX_PEER_ADDR_LEN]; // For logging
+} xsan_pending_connect_op_t;
+
+
 xsan_error_t xsan_node_comm_init(const char *listen_ip, uint16_t listen_port,
                                  xsan_node_message_handler_cb_t msg_handler_cb,
                                  void *handler_cb_arg) {
     if (g_node_comm_ctx.module_initialized) { XSAN_LOG_WARN("XSAN Comm module already init."); return XSAN_OK; }
-    if (listen_ip && !msg_handler_cb) { XSAN_LOG_WARN("Listen IP provided but no msg handler."); }
+    // msg_handler_cb is now optional at init, if all messages will use specific handlers.
+    // if (listen_ip && !msg_handler_cb) { XSAN_LOG_WARN("Listen IP provided but no generic msg handler."); }
     if (spdk_get_thread() == NULL) { XSAN_LOG_ERROR("xsan_node_comm_init must be from SPDK thread."); return XSAN_ERROR_THREAD_CONTEXT; }
 
     XSAN_LOG_INFO("Initializing XSAN Node Comm module...");
-    memset(&g_node_comm_ctx, 0, sizeof(g_node_comm_ctx));
+    memset(&g_node_comm_ctx, 0, sizeof(g_node_comm_ctx)); // This also zeros out specific_handlers array
     if (pthread_mutex_init(&g_node_comm_ctx.active_connections_lock, NULL) != 0) { XSAN_LOG_FATAL("Mutex init failed."); return XSAN_ERROR_SYSTEM; }
 
     uint32_t current_reactor = spdk_env_get_current_core();
@@ -120,6 +137,28 @@ xsan_error_t xsan_node_comm_init(const char *listen_ip, uint16_t listen_port,
     XSAN_LOG_INFO("XSAN Node Comm module initialized.");
     return XSAN_OK;
 }
+
+xsan_error_t xsan_node_comm_register_message_handler(xsan_message_type_t type,
+                                                     xsan_specific_message_handler_cb_t specific_handler,
+                                                     void *specific_cb_arg) {
+    if (!g_node_comm_ctx.module_initialized) {
+        XSAN_LOG_ERROR("Cannot register handler, XSAN Comm module not initialized.");
+        return XSAN_ERROR_NOT_INITIALIZED;
+    }
+    if (type <= XSAN_MSG_TYPE_UNDEFINED || type >= XSAN_MSG_TYPE_MAX) {
+        XSAN_LOG_ERROR("Invalid message type %u for handler registration.", type);
+        return XSAN_ERROR_INVALID_PARAM;
+    }
+    if (!specific_handler) {
+        XSAN_LOG_WARN("Unregistering handler for message type %u (NULL handler provided).", type);
+    }
+    g_node_comm_ctx.specific_handlers[type] = specific_handler;
+    g_node_comm_ctx.specific_handler_args[type] = specific_cb_arg;
+    XSAN_LOG_INFO("Message handler %s for type %u.",
+                  specific_handler ? "registered" : "unregistered", type);
+    return XSAN_OK;
+}
+
 
 void xsan_node_comm_fini(void) {
     if (!g_node_comm_ctx.module_initialized) return;
@@ -321,11 +360,21 @@ static void _process_received_data_for_connection(xsan_connection_ctx_t *conn_ct
                             memcpy(full_msg->payload, conn_ctx->recv_buf, full_msg->header.payload_length);
                         } else full_msg->payload = NULL;
 
-                        XSAN_LOG_DEBUG("Full msg (Type: %u, TID: %lu) from %s. Passing to app handler.",
+                        XSAN_LOG_DEBUG("Full msg (Type: %u, TID: %lu) from %s. Dispatching...",
                                        full_msg->header.type, full_msg->header.transaction_id, conn_ctx->peer_addr_str);
-                        if (conn_ctx->app_msg_handler_cb) {
+
+                        xsan_message_type_t msg_type = (xsan_message_type_t)full_msg->header.type;
+                        if (msg_type > XSAN_MSG_TYPE_UNDEFINED && msg_type < XSAN_MSG_TYPE_MAX &&
+                            g_node_comm_ctx.specific_handlers[msg_type] != NULL) {
+                            // Pass conn_ctx instead of sock and peer_addr_str directly
+                            g_node_comm_ctx.specific_handlers[msg_type](conn_ctx, full_msg, g_node_comm_ctx.specific_handler_args[msg_type]);
+                        } else if (conn_ctx->app_msg_handler_cb) { // Fallback to global/connection-specific generic handler
+                            XSAN_LOG_WARN("No specific handler for msg type %u from %s. Using generic handler.", msg_type, conn_ctx->peer_addr_str);
                             conn_ctx->app_msg_handler_cb(conn_ctx->sock, conn_ctx->peer_addr_str, full_msg, conn_ctx->app_msg_handler_cb_arg);
-                        } else { xsan_protocol_message_destroy(full_msg); }
+                        } else {
+                            XSAN_LOG_ERROR("No specific or generic handler for msg type %u from %s. Discarding.", msg_type, conn_ctx->peer_addr_str);
+                            xsan_protocol_message_destroy(full_msg);
+                        }
 
                         memmove(conn_ctx->recv_buf, conn_ctx->recv_buf + full_msg->header.payload_length, conn_ctx->recv_buf_len - full_msg->header.payload_length);
                         conn_ctx->recv_buf_len -= full_msg->header.payload_length;

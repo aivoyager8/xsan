@@ -242,6 +242,9 @@ static xsan_error_t _xsan_disk_group_to_json_string(const xsan_disk_group_t *gro
     json_object_object_add(jobj, "disk_count", json_object_new_int(group->disk_count));
     json_object_object_add(jobj, "total_capacity_bytes", json_object_new_int64(group->total_capacity_bytes));
     json_object_object_add(jobj, "usable_capacity_bytes", json_object_new_int64(group->usable_capacity_bytes));
+    json_object_object_add(jobj, "allocated_bytes_in_group", json_object_new_int64(group->allocated_bytes_in_group));
+    json_object_object_add(jobj, "next_alloc_logical_block_in_group", json_object_new_int64(group->next_alloc_logical_block_in_group));
+    json_object_object_add(jobj, "group_logical_block_size", json_object_new_int(group->group_logical_block_size));
 
     json_object *jarray_disk_ids = json_object_new_array();
     for (uint32_t i = 0; i < group->disk_count; ++i) {
@@ -273,6 +276,13 @@ static xsan_error_t _xsan_json_string_to_disk_group(const char *json_string, xsa
     if (json_object_object_get_ex(jobj, "disk_count", &val)) group->disk_count = (uint32_t)json_object_get_int(val);
     if (json_object_object_get_ex(jobj, "total_capacity_bytes", &val)) group->total_capacity_bytes = (uint64_t)json_object_get_int64(val);
     if (json_object_object_get_ex(jobj, "usable_capacity_bytes", &val)) group->usable_capacity_bytes = (uint64_t)json_object_get_int64(val);
+    if (json_object_object_get_ex(jobj, "allocated_bytes_in_group", &val)) group->allocated_bytes_in_group = (uint64_t)json_object_get_int64(val);
+    else group->allocated_bytes_in_group = 0; // Default if not present
+    if (json_object_object_get_ex(jobj, "next_alloc_logical_block_in_group", &val)) group->next_alloc_logical_block_in_group = (uint64_t)json_object_get_int64(val);
+    else group->next_alloc_logical_block_in_group = 0; // Default if not present
+    if (json_object_object_get_ex(jobj, "group_logical_block_size", &val)) group->group_logical_block_size = (uint32_t)json_object_get_int(val);
+    else group->group_logical_block_size = 4096; // Default if not present, should match create logic's default
+
 
     if (json_object_object_get_ex(jobj, "disk_ids", &val) && json_object_is_type(val, json_type_array)) {
         int array_len = json_object_array_length(val);
@@ -652,6 +662,32 @@ xsan_disk_t *xsan_disk_manager_find_disk_by_bdev_name(xsan_disk_manager_t *dm, c
     pthread_mutex_unlock(&dm->lock); return found_disk;
 }
 
+// Internal unlocked versions of find functions
+static xsan_disk_t *_xsan_disk_manager_find_disk_by_id_unlocked(xsan_disk_manager_t *dm, xsan_disk_id_t disk_id_to_find) {
+    if (!dm || !dm->initialized) return NULL;
+    xsan_list_node_t *node;
+    XSAN_LIST_FOREACH(dm->managed_disks, node) {
+        xsan_disk_t *disk = (xsan_disk_t *)xsan_list_node_get_value(node);
+        if (spdk_uuid_compare((struct spdk_uuid*)&disk->id.data[0], (struct spdk_uuid*)&disk_id_to_find.data[0]) == 0) {
+            return disk;
+        }
+    }
+    return NULL;
+}
+
+static xsan_disk_group_t *_xsan_disk_manager_find_disk_group_by_id_unlocked(xsan_disk_manager_t *dm, xsan_group_id_t group_id_to_find) {
+    if (!dm || !dm->initialized) return NULL;
+    xsan_list_node_t *node;
+    XSAN_LIST_FOREACH(dm->managed_disk_groups, node) {
+        xsan_disk_group_t *group = (xsan_disk_group_t *)xsan_list_node_get_value(node);
+        if (spdk_uuid_compare((struct spdk_uuid*)&group->id.data[0], (struct spdk_uuid*)&group_id_to_find.data[0]) == 0) {
+            return group;
+        }
+    }
+    return NULL;
+}
+
+
 xsan_error_t xsan_disk_manager_disk_group_create(xsan_disk_manager_t *dm,
                                                  const char *group_name,
                                                  xsan_disk_group_type_t group_type,
@@ -694,7 +730,23 @@ xsan_error_t xsan_disk_manager_disk_group_create(xsan_disk_manager_t *dm,
     new_group->type = group_type; new_group->state = XSAN_STORAGE_STATE_ONLINE;
     new_group->disk_count = (uint32_t)num_bdevs;
     new_group->total_capacity_bytes = calculated_total_capacity;
-    new_group->usable_capacity_bytes = calculated_total_capacity;
+    new_group->usable_capacity_bytes = calculated_total_capacity; // TODO: Adjust for RAID overhead if not JBOD/Pass
+    new_group->allocated_bytes_in_group = 0;
+    new_group->next_alloc_logical_block_in_group = 0;
+    // Determine group_logical_block_size (e.g., smallest physical block size in group, or a default)
+    // For simplicity, assume all disks in group have compatible block sizes or use a common minimum.
+    // This should ideally be determined by inspecting member_disks_ptrs[i]->block_size_bytes.
+    // Let's find the minimum block size among member disks.
+    uint32_t min_block_size = UINT32_MAX;
+    if (num_bdevs > 0) {
+        for (int i = 0; i < num_bdevs; ++i) {
+            if (member_disks_ptrs[i]->block_size_bytes > 0 && member_disks_ptrs[i]->block_size_bytes < min_block_size) {
+                min_block_size = member_disks_ptrs[i]->block_size_bytes;
+            }
+        }
+    }
+    new_group->group_logical_block_size = (min_block_size != UINT32_MAX && min_block_size > 0) ? min_block_size : 4096; // Default to 4K if issue
+
     for (int i = 0; i < num_bdevs; ++i) {
         memcpy(&new_group->disk_ids[i], &member_disks_ptrs[i]->id, sizeof(xsan_disk_id_t));
         memcpy(&member_disks_ptrs[i]->assigned_to_group_id, &new_group->id, sizeof(xsan_group_id_t));
@@ -778,6 +830,207 @@ xsan_disk_group_t *xsan_disk_manager_find_disk_group_by_id(xsan_disk_manager_t *
         }
     }
     pthread_mutex_unlock(&dm->lock); return found_group;
+}
+
+
+// --- Disk Group Space Allocation Operations ---
+
+xsan_error_t xsan_disk_group_allocate_extents(xsan_disk_manager_t *dm,
+                                              xsan_group_id_t group_id,
+                                              uint64_t total_volume_blocks_needed, // In terms of volume_logical_block_size
+                                              uint32_t volume_logical_block_size,
+                                              xsan_volume_extent_mapping_t **extents_out,
+                                              uint32_t *num_extents_out) {
+    if (!dm || !dm->initialized || spdk_uuid_is_null((struct spdk_uuid*)&group_id.data[0]) ||
+        total_volume_blocks_needed == 0 || volume_logical_block_size == 0 ||
+        !extents_out || !num_extents_out) {
+        return XSAN_ERROR_INVALID_PARAM;
+    }
+
+    *extents_out = NULL;
+    *num_extents_out = 0;
+
+    pthread_mutex_lock(&dm->lock);
+    // Use unlocked version as we already hold the lock
+    xsan_disk_group_t *group = _xsan_disk_manager_find_disk_group_by_id_unlocked(dm, group_id);
+    if (!group) {
+        pthread_mutex_unlock(&dm->lock);
+        return XSAN_ERROR_NOT_FOUND;
+    }
+    if (group->state != XSAN_STORAGE_STATE_ONLINE) {
+        pthread_mutex_unlock(&dm->lock);
+        return XSAN_ERROR_RESOURCE_UNAVAILABLE;
+    }
+    if (group->group_logical_block_size == 0) {
+         XSAN_LOG_ERROR("Disk group %s has invalid group_logical_block_size of 0.", group->name);
+         pthread_mutex_unlock(&dm->lock);
+         return XSAN_ERROR_INTERNAL; // Indicate bad group config
+    }
+
+    uint64_t total_bytes_needed = total_volume_blocks_needed * volume_logical_block_size;
+    uint64_t free_bytes_in_group = group->usable_capacity_bytes - group->allocated_bytes_in_group;
+
+    if (total_bytes_needed > free_bytes_in_group) {
+        XSAN_LOG_ERROR("Not enough space in group %s. Needed: %lu, Free: %lu",
+                       group->name, total_bytes_needed, free_bytes_in_group);
+        pthread_mutex_unlock(&dm->lock);
+        return XSAN_ERROR_INSUFFICIENT_SPACE;
+    }
+
+    // Convert total_bytes_needed to number of group's logical blocks
+    uint64_t num_group_blocks_to_allocate = (total_bytes_needed + group->group_logical_block_size - 1) / group->group_logical_block_size;
+
+    // Simplified JBOD-like allocation: allocate contiguously across disks in the group
+    xsan_volume_extent_mapping_t temp_extents[XSAN_MAX_DISKS_PER_GROUP]; // Max possible extents = num disks
+    uint32_t current_extent_idx = 0;
+    uint64_t group_blocks_remaining_to_allocate = num_group_blocks_to_allocate;
+    uint64_t current_group_logical_block_offset = group->next_alloc_logical_block_in_group;
+    uint64_t volume_lba_offset_for_current_extent = 0;
+
+    uint64_t cumulative_block_offset_in_group = 0;
+
+    for (uint32_t i = 0; i < group->disk_count && group_blocks_remaining_to_allocate > 0; ++i) {
+        // Use unlocked version
+        xsan_disk_t *disk = _xsan_disk_manager_find_disk_by_id_unlocked(dm, group->disk_ids[i]);
+        if (!disk || disk->state != XSAN_STORAGE_STATE_ONLINE || disk->block_size_bytes == 0) {
+            XSAN_LOG_WARN("Skipping disk %s (ID %s) in group %s during allocation: not online or invalid block size.",
+                          disk ? disk->bdev_name : "UNKNOWN",
+                          spdk_uuid_get_string((struct spdk_uuid*)&group->disk_ids[i].data[0]), group->name);
+            if(disk) cumulative_block_offset_in_group += (disk->capacity_bytes / group->group_logical_block_size);
+            continue;
+        }
+
+        uint64_t disk_capacity_in_group_blocks = disk->capacity_bytes / group->group_logical_block_size;
+
+        // Find where current_group_logical_block_offset falls relative to this disk
+        if (current_group_logical_block_offset >= cumulative_block_offset_in_group + disk_capacity_in_group_blocks) {
+            // Allocation starts after this disk
+            cumulative_block_offset_in_group += disk_capacity_in_group_blocks;
+            continue;
+        }
+
+        uint64_t start_block_on_this_disk_logically = 0; // Start block on this disk in terms of group_logical_block_size
+        if (current_group_logical_block_offset > cumulative_block_offset_in_group) {
+            start_block_on_this_disk_logically = current_group_logical_block_offset - cumulative_block_offset_in_group;
+        }
+
+        uint64_t available_blocks_on_this_disk_logically = disk_capacity_in_group_blocks - start_block_on_this_disk_logically;
+        uint64_t blocks_to_alloc_from_this_disk_logically = XSAN_MIN(group_blocks_remaining_to_allocate, available_blocks_on_this_disk_logically);
+
+        if (blocks_to_alloc_from_this_disk_logically > 0) {
+            if (current_extent_idx >= XSAN_MAX_DISKS_PER_GROUP) { // Should match XSAN_MAX_EXTENTS_PER_VOLUME
+                 XSAN_LOG_ERROR("Exceeded max extents per volume during allocation for group %s.", group->name);
+                 // TODO: Need to rollback or handle this error properly. For now, fail.
+                 pthread_mutex_unlock(&dm->lock);
+                 return XSAN_ERROR_TOO_MANY_EXTENTS; // Define this error
+            }
+
+            temp_extents[current_extent_idx].disk_id = disk->id;
+            // Convert start_block_on_this_disk_logically (in group_logical_block_size units) to physical disk LBA
+            temp_extents[current_extent_idx].start_block_on_disk = (start_block_on_this_disk_logically * group->group_logical_block_size) / disk->block_size_bytes;
+            // Convert blocks_to_alloc_from_this_disk_logically to physical disk blocks
+            temp_extents[current_extent_idx].num_blocks_on_disk = (blocks_to_alloc_from_this_disk_logically * group->group_logical_block_size) / disk->block_size_bytes;
+            temp_extents[current_extent_idx].volume_start_lba = volume_lba_offset_for_current_extent;
+
+            volume_lba_offset_for_current_extent += (blocks_to_alloc_from_this_disk_logically * group->group_logical_block_size) / volume_logical_block_size;
+            group_blocks_remaining_to_allocate -= blocks_to_alloc_from_this_disk_logically;
+            current_group_logical_block_offset += blocks_to_alloc_from_this_disk_logically;
+            current_extent_idx++;
+        }
+        cumulative_block_offset_in_group += disk_capacity_in_group_blocks;
+    }
+
+    if (group_blocks_remaining_to_allocate > 0) {
+        // Should have been caught by usable_capacity check, but good to double check allocation logic
+        XSAN_LOG_ERROR("Failed to allocate all requested blocks for group %s. Remaining: %lu. This indicates an internal logic error or fragmentation issue (not handled by current simple allocator).",
+                       group->name, group_blocks_remaining_to_allocate);
+        pthread_mutex_unlock(&dm->lock);
+        return XSAN_ERROR_INSUFFICIENT_SPACE; // Or internal error
+    }
+
+    // Copy temp_extents to output
+    if (current_extent_idx > 0) {
+        *extents_out = (xsan_volume_extent_mapping_t *)XSAN_MALLOC(sizeof(xsan_volume_extent_mapping_t) * current_extent_idx);
+        if (!*extents_out) {
+            pthread_mutex_unlock(&dm->lock);
+            return XSAN_ERROR_OUT_OF_MEMORY;
+        }
+        memcpy(*extents_out, temp_extents, sizeof(xsan_volume_extent_mapping_t) * current_extent_idx);
+        *num_extents_out = current_extent_idx;
+
+        group->allocated_bytes_in_group += total_bytes_needed; // Update based on volume's request
+        group->next_alloc_logical_block_in_group = current_group_logical_block_offset; // Update for next allocation
+        xsan_disk_manager_save_group_meta(dm, group); // Persist changes to the group
+    } else {
+         XSAN_LOG_ERROR("No extents were generated for group %s, though space check passed. Logic error.", group->name);
+         pthread_mutex_unlock(&dm->lock);
+         return XSAN_ERROR_INTERNAL;
+    }
+
+    pthread_mutex_unlock(&dm->lock);
+    return XSAN_OK;
+}
+
+xsan_error_t xsan_disk_group_free_extents(xsan_disk_manager_t *dm,
+                                          xsan_group_id_t group_id,
+                                          const xsan_volume_extent_mapping_t *extents,
+                                          uint32_t num_extents) {
+    if (!dm || !dm->initialized || spdk_uuid_is_null((struct spdk_uuid*)&group_id.data[0]) ||
+        !extents || num_extents == 0) {
+        return XSAN_ERROR_INVALID_PARAM;
+    }
+
+    pthread_mutex_lock(&dm->lock);
+    // Use unlocked version
+    xsan_disk_group_t *group = _xsan_disk_manager_find_disk_group_by_id_unlocked(dm, group_id);
+    if (!group) {
+        pthread_mutex_unlock(&dm->lock);
+        return XSAN_ERROR_NOT_FOUND;
+    }
+
+    uint64_t total_bytes_freed = 0;
+    for (uint32_t i = 0; i < num_extents; ++i) {
+        // Use unlocked version
+        xsan_disk_t *disk = _xsan_disk_manager_find_disk_by_id_unlocked(dm, extents[i].disk_id);
+        if (!disk) {
+            XSAN_LOG_WARN("Disk ID %s referenced in extent to be freed not found in group %s.",
+                          spdk_uuid_get_string((struct spdk_uuid*)&extents[i].disk_id.data[0]), group->name);
+            continue; // Or return error? For now, just log and skip this extent.
+        }
+        total_bytes_freed += (uint64_t)extents[i].num_blocks_on_disk * disk->block_size_bytes;
+        // TODO: Actual space reclamation. With the current simple allocator, this is hard.
+        // We can only reliably roll back next_alloc_logical_block_in_group if these were the *last* allocated blocks.
+        // For now, just update allocated_bytes_in_group. This will lead to logical fragmentation
+        // that the current allocator cannot reuse. A proper bitmap/freelist is needed for real reclamation.
+        XSAN_LOG_DEBUG("Extent freed on disk %s for group %s: %lu blocks starting at %lu (physical).",
+                       disk->bdev_name, group->name, extents[i].num_blocks_on_disk, extents[i].start_block_on_disk);
+    }
+
+    if (group->allocated_bytes_in_group >= total_bytes_freed) {
+        group->allocated_bytes_in_group -= total_bytes_freed;
+    } else {
+        XSAN_LOG_ERROR("Attempted to free %lu bytes from group %s, but only %lu were allocated. Clamping.",
+                       total_bytes_freed, group->name, group->allocated_bytes_in_group);
+        group->allocated_bytes_in_group = 0;
+    }
+
+    // Simplistic: if we are freeing the very last allocation, we can roll back the next_alloc pointer.
+    // This is a very basic form of reclamation.
+    // This logic needs to be more robust: check if the sum of freed blocks matches the difference
+    // between current next_alloc and the start of the freed region.
+    // uint64_t freed_group_blocks = total_bytes_freed / group->group_logical_block_size;
+    // if (group->next_alloc_logical_block_in_group >= freed_group_blocks) {
+    //     // This condition is too simple, needs to check if the freed extents are contiguous
+    //     // and at the end of the allocated space.
+    // }
+
+    xsan_disk_manager_save_group_meta(dm, group);
+    pthread_mutex_unlock(&dm->lock);
+
+    XSAN_LOG_INFO("Freed %lu bytes from group %s. Allocated now: %lu bytes.",
+                  total_bytes_freed, group->name, group->allocated_bytes_in_group);
+
+    return XSAN_OK;
 }
 
 xsan_disk_group_t *xsan_disk_manager_find_disk_group_by_name(xsan_disk_manager_t *dm, const char *name) {
