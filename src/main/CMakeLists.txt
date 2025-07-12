@@ -45,10 +45,10 @@ if(XSAN_ENABLE_SPDK)
     # We can try adding some common ones if pkg-config doesn't cover them all.
     # However, a well-formed pkg-config setup for SPDK should handle this.
     # Let's add numa explicitly as it's a common one for DPDK.
-    find_package(Numa) # Check if Numa development libraries are installed
-    if(NUMA_FOUND)
-        target_link_libraries(xsan_node PRIVATE ${NUMA_LIBRARIES})
-        message(STATUS "Linking with NUMA library: ${NUMA_LIBRARIES}")
+    # 直接使用主 CMakeLists.txt 检测到的 NUMA 库
+    if(XSAN_NUMA_LIBRARIES)
+        target_link_libraries(xsan_node PRIVATE ${XSAN_NUMA_LIBRARIES})
+        message(STATUS "Linking with NUMA library: ${XSAN_NUMA_LIBRARIES}")
     else()
         message(WARNING "NUMA library not found. SPDK performance might be affected or build might fail if SPDK requires it directly.")
     endif()

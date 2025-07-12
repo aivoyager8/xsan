@@ -24,19 +24,30 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Good for IDEs
 
 
 
-# 使用系统自带的 RocksDB 库
-find_package(PkgConfig REQUIRED)
-pkg_search_module(ROCKSDB REQUIRED rocksdb)
-if(ROCKSDB_FOUND)
-    message(STATUS "Found system RocksDB: ${ROCKSDB_LIBRARIES}")
-    message(STATUS "RocksDB Include Dirs: ${ROCKSDB_INCLUDE_DIRS}")
-    set(XSAN_ROCKSDB_INCLUDE_DIRS ${ROCKSDB_INCLUDE_DIRS} CACHE INTERNAL "RocksDB Include Directories")
-    set(XSAN_ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARIES} CACHE INTERNAL "RocksDB Libraries")
-    set(XSAN_ROCKSDB_LIBRARY_DIRS ${ROCKSDB_LIBRARY_DIRS} CACHE INTERNAL "RocksDB Library Directories")
-    include_directories(SYSTEM ${XSAN_ROCKSDB_INCLUDE_DIRS})
-    link_directories(${XSAN_ROCKSDB_LIBRARY_DIRS})
+
+
+# 查找系统 rocksdb 头文件和库
+find_path(ROCKSDB_INCLUDE_DIR NAMES rocksdb/c.h PATHS /usr/include /usr/local/include)
+find_library(ROCKSDB_LIBRARY NAMES rocksdb PATHS /usr/lib /usr/local/lib)
+if(ROCKSDB_INCLUDE_DIR AND ROCKSDB_LIBRARY)
+    message(STATUS "Found system RocksDB include: ${ROCKSDB_INCLUDE_DIR}")
+    message(STATUS "Found system RocksDB library: ${ROCKSDB_LIBRARY}")
+    include_directories(SYSTEM ${ROCKSDB_INCLUDE_DIR})
+    set(XSAN_ROCKSDB_LIBRARIES ${ROCKSDB_LIBRARY} CACHE INTERNAL "RocksDB Libraries")
 else()
-    message(FATAL_ERROR "System RocksDB library not found by pkg-config. Please install rocksdb.")
+    message(FATAL_ERROR "System RocksDB not found. Please install librocksdb-dev.")
+endif()
+
+# 查找并集成 NUMA 库
+find_path(NUMA_INCLUDE_DIR NAMES numa.h PATHS /usr/include /usr/local/include)
+find_library(NUMA_LIBRARY NAMES numa PATHS /usr/lib /usr/local/lib)
+if(NUMA_INCLUDE_DIR AND NUMA_LIBRARY)
+    message(STATUS "Found NUMA include: ${NUMA_INCLUDE_DIR}")
+    message(STATUS "Found NUMA library: ${NUMA_LIBRARY}")
+    include_directories(SYSTEM ${NUMA_INCLUDE_DIR})
+    set(XSAN_NUMA_LIBRARIES ${NUMA_LIBRARY} CACHE INTERNAL "NUMA Libraries")
+else()
+    message(WARNING "NUMA library not found, performance may be affected.")
 endif()
 
 
