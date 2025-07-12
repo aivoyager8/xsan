@@ -1,7 +1,8 @@
+#include "xsan_types.h" // 统一类型定义
 #ifndef XSAN_PROTOCOL_H
 #define XSAN_PROTOCOL_H
 
-#include "xsan_storage.h" // For xsan_volume_id_t, xsan_storage_state_t
+#include "xsan_storage.h" // For xsan_volume_id_t, xsan_storage_state_t, xsan_volume_t
 #include "xsan_types.h" // For xsan_error_t
 #include <stdint.h>     // For uint32_t, uint64_t
 #include <stddef.h>     // For size_t
@@ -148,10 +149,10 @@ typedef struct {
  * @brief Represents a full XSAN message, including header and payload.
  * The payload buffer is managed externally or by helper create/destroy functions.
  */
-typedef struct {
+struct xsan_message {
     xsan_message_header_t header; ///< The message header.
     unsigned char *payload;       ///< Pointer to the payload data. NULL if payload_length is 0.
-} xsan_message_t;
+};
 
 /**
  * @brief Initializes a message header with common values.

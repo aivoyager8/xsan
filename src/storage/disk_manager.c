@@ -7,7 +7,7 @@
 #include "xsan_metadata_store.h" // For RocksDB wrapper
 #include "json-c/json.h"   // For JSON processing
 
-#include "spdk/uuid.h"     // For spdk_uuid_generate, spdk_uuid_compare, spdk_uuid_is_null, spdk_uuid_get_string
+#include "spdk/uuid.h"     // For spdk_uuid_generate, spdk_uuid_compare, spdk_uuid_is_null, spdk_uuid_fmt_lower
 #include "spdk/bdev.h"     // For spdk_bdev_open_ext, spdk_bdev_close
 #include "spdk/thread.h"   // For spdk_get_thread
 #include <pthread.h>       // For pthread_mutex_t

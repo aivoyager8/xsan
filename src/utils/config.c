@@ -719,9 +719,12 @@ bool xsan_config_load_cluster_config(xsan_config_t *config, xsan_cluster_config_
             memcpy(&current_seed_node->mgmt_addr, &current_seed_node->storage_addr, sizeof(xsan_address_t));
 
 
+
+            char uuid_str[SPDK_UUID_STRING_LEN];
+            spdk_uuid_fmt_lower(uuid_str, sizeof(uuid_str), (struct spdk_uuid*)&current_seed_node->id.data[0]);
             XSAN_LOG_DEBUG("Parsed seed node %zu: ID=%s, IP=%s, Port=%u",
                            cluster_config->seed_node_count,
-                           spdk_uuid_get_string((struct spdk_uuid*)&current_seed_node->id.data[0]), // Need spdk/uuid.h for this
+                           uuid_str,
                            current_seed_node->storage_addr.ip,
                            current_seed_node->storage_addr.port);
 

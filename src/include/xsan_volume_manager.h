@@ -1,3 +1,4 @@
+#include "xsan_storage.h" // For xsan_volume_t, xsan_group_id_t, xsan_volume_id_t, xsan_disk_id_t
 #ifndef XSAN_VOLUME_MANAGER_H
 #define XSAN_VOLUME_MANAGER_H
 

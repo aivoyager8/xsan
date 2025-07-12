@@ -72,6 +72,11 @@ xsan_error_t xsan_cluster_init(const char *config_path) {
          XSAN_LOG_ERROR("Global config (g_xsan_config) not loaded or cluster_config not populated (cluster_name is empty). Cannot initialize cluster module.");
          return XSAN_ERROR_NOT_INITIALIZED;
     }
+    // 其他初始化逻辑...
+    g_cluster_initialized = true;
+    XSAN_LOG_INFO("XSAN Cluster initialized: %s", g_cluster_config.cluster_name);
+    return XSAN_OK;
+}
 
     XSAN_LOG_INFO("Initializing XSAN Cluster module with cluster name: %s", g_cluster_config.cluster_name);
 

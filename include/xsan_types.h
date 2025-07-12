@@ -1,25 +1,28 @@
+// 前置声明，确保所有头文件引用 struct xsan_volume 一致
+// ...移除无效前置声明...
+// 类型唯一定义，移除所有重复和条件分支
 #ifndef XSAN_TYPES_H
 #define XSAN_TYPES_H
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include "xsan_error.h"
 #include <pthread.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-/* UUID support (optional) */
-#ifdef HAVE_UUID
-#include <uuid/uuid.h>
-typedef struct {
-    uuid_t uuid;
-} xsan_uuid_t;
-#else
-/* Fallback UUID implementation */
-typedef struct {
-    uint8_t data[16];
-} xsan_uuid_t;
-#endif
+typedef struct { uint8_t data[16]; } xsan_uuid_t;
+typedef xsan_uuid_t xsan_node_id_t;
+typedef xsan_uuid_t xsan_disk_id_t;
+typedef xsan_uuid_t xsan_group_id_t;
+typedef xsan_uuid_t xsan_volume_id_t;
+
+typedef struct xsan_message xsan_message_t;
+typedef struct xsan_replicated_io_ctx xsan_replicated_io_ctx_t;
+typedef struct xsan_replica_read_coordinator_ctx xsan_replica_read_coordinator_ctx_t;
+typedef void (*xsan_user_io_completion_cb_t)(void *cb_arg, int status);
 
 /* Maximum limits */
 #define XSAN_MAX_NODES 64
@@ -29,6 +32,42 @@ typedef struct {
 #define XSAN_MAX_NAME_LEN 256
 #define XSAN_BLOCK_SIZE 4096
 #define XSAN_DEFAULT_REPLICAS 2
+#define XSAN_MAX_REPLICAS 3
+// 前置声明，供分布式/IO/replication模块使用
+typedef struct xsan_volume xsan_volume_t;
+
+typedef struct xsan_replicated_io_ctx {
+    xsan_volume_id_t volume_id;
+    void *user_buffer;
+    uint64_t logical_byte_offset;
+    uint64_t length_bytes;
+    xsan_user_io_completion_cb_t original_user_cb;
+    void *original_user_cb_arg;
+    uint64_t transaction_id;
+    uint32_t total_replicas_targeted;
+    uint32_t successful_writes;
+    uint32_t failed_writes;
+    xsan_error_t final_status;
+    struct xsan_io_request *local_io_req;
+} xsan_replicated_io_ctx_t;
+
+typedef struct xsan_replica_read_coordinator_ctx {
+    xsan_volume_t *vol;
+    void *user_buffer;
+    uint64_t logical_byte_offset;
+    uint64_t length_bytes;
+    xsan_user_io_completion_cb_t original_user_cb;
+    void *original_user_cb_arg;
+    uint64_t transaction_id;
+    uint32_t current_replica_idx_to_try;
+    xsan_error_t last_attempt_status;
+    void *internal_dma_buffer;
+    size_t internal_dma_buffer_size;
+    bool internal_dma_buffer_allocated;
+    void *current_remote_op_ctx;
+} xsan_replica_read_coordinator_ctx_t;
+
+#define XSAN_MAX_SEED_NODES 16
 
 /* Error codes are now defined in xsan_error.h */
 #include "xsan_error.h" /* For xsan_error_t and detailed error codes */

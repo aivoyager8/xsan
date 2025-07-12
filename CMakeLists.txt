@@ -1,3 +1,5 @@
+# 设置 SPDK 相关库变量，包含 uuid 支持
+set(XSAN_SPDK_LIBRARIES spdk_util spdk_bdev spdk_env_dpdk uuid)
 cmake_minimum_required(VERSION 3.16)
 project(xsan VERSION 1.0.0 LANGUAGES C)
 

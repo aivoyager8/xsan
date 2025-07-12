@@ -1,3 +1,5 @@
+#include "xsan_storage.h"  // For XSAN_MAX_REPLICAS, xsan_volume_id_t
+// struct xsan_volume; // struct xsan_volume_t 已在 xsan_storage.h 定义，无需重复声明
 #ifndef XSAN_REPLICATION_H
 #define XSAN_REPLICATION_H
 

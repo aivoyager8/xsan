@@ -1,3 +1,5 @@
+// 空实现，确保链接通过
+void xsan_log_cleanup(void) {}
 /**
  * XSAN 日志系统实现
  * 

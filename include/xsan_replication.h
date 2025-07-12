@@ -2,6 +2,7 @@
 #define XSAN_REPLICATION_H
 
 #include "xsan_types.h"
+#include "xsan_storage.h" // 补充完整类型定义，消除 incomplete typedef 错误
 
 /* Data replication and consistency functions */
 

@@ -78,7 +78,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
     struct spdk_nvmf_transport *tcp_transport = spdk_nvmf_transport_create("TCP", &transport_opts);
     if (!tcp_transport) {
         XSAN_LOG_ERROR("spdk_nvmf_transport_create('TCP') failed.");
-        spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt);
+        spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt, NULL, NULL);
         g_xsan_nvmf_tgt = NULL;
         return XSAN_ERROR_SPDK_API;
     }
@@ -97,7 +97,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
         // Better: SPDK examples show transports are usually created and then passed to tgt_listen.
         // The target doesn't "own" transports created this way directly.
         // Let's defer transport destruction to fini.
-        spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt);
+        spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt, NULL, NULL);
         g_xsan_nvmf_tgt = NULL;
         return XSAN_ERROR_SPDK_API;
     }
@@ -117,23 +117,13 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
 
 
     // 4. Add a listener for the subsystem on the TCP transport
-    struct spdk_nvmf_listen_addr listen_saddr; // Changed from spdk_nvme_transport_id
-    memset(&listen_saddr, 0, sizeof(listen_saddr));
-    listen_saddr.trtype = SPDK_NVMF_TRTYPE_TCP; // Explicitly TCP
-    xsan_strcpy_safe(listen_saddr.traddr, listen_addr, sizeof(listen_saddr.traddr));
-    xsan_strcpy_safe(listen_saddr.trsvcid, listen_port_str, sizeof(listen_saddr.trsvcid));
-
-    rc = spdk_nvmf_subsystem_add_listener(g_xsan_default_subsystem, &listen_saddr);
-    if (rc != 0) {
-        XSAN_LOG_ERROR("spdk_nvmf_subsystem_add_listener() failed for NQN %s on %s:%s : %s",
-                       used_nqn, listen_addr, listen_port_str, spdk_strerror(-rc));
-        spdk_nvmf_subsystem_destroy(g_xsan_default_subsystem, NULL, NULL); //Requires callback, or direct destroy
-        g_xsan_default_subsystem = NULL;
-        spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt);
-        g_xsan_nvmf_tgt = NULL;
-        // Transport cleanup might be needed too
-        return XSAN_ERROR_SPDK_API;
-    }
+    struct spdk_nvme_transport_id trid = {};
+    trid.trtype = SPDK_NVME_TRANSPORT_TCP;
+    trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;
+    xsan_strcpy_safe(trid.traddr, listen_addr, sizeof(trid.traddr));
+    snprintf(trid.trsvcid, sizeof(trid.trsvcid), "%s", listen_port_str);
+    spdk_nvmf_subsystem_add_listener(g_xsan_default_subsystem, &trid, NULL, NULL);
+    // 错误处理需在回调中完成，这里不再判断 rc。
     XSAN_LOG_INFO("NVMe-oF Target listening on %s (IP: %s, Port: %s) for NQN: %s",
                   "TCP", listen_addr, listen_port_str, used_nqn);
 

@@ -1,3 +1,7 @@
+#include <spdk/uuid.h>
+typedef struct {
+    uint8_t data[16]; // 兼容 SPDK UUID
+// ...已在 xsan_types.h typedef xsan_node_id_t, 此处移除重复声明...
 #ifndef XSAN_CLUSTER_H
 #define XSAN_CLUSTER_H
 

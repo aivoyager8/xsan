@@ -1,57 +1,5 @@
-#ifndef XSAN_ERROR_H
-#define XSAN_ERROR_H
-
-/**
- * XSAN Error Codes
- *
- * This file defines all error codes used within the XSAN system.
- * Convention:
- *  - XSAN_OK (0) for success.
- *  - Negative values for errors.
- */
-typedef enum {
-    XSAN_OK = 0,
-
-    /* Generic Errors (Derived from original xsan_types.h and error.c needs) */
-    XSAN_ERROR_GENERIC = -1,            // General unspecified error
-    XSAN_ERROR_INVALID_PARAM = -2,      // Invalid function parameter
-    XSAN_ERROR_OUT_OF_MEMORY = -3,    // Memory allocation failure
-    XSAN_ERROR_IO = -4,                 // General I/O error
-    XSAN_ERROR_NETWORK = -5,            // General network error (use more specific ones below if possible)
-    XSAN_ERROR_NOT_FOUND = -6,          // Generic item not found
-    XSAN_ERROR_TIMEOUT = -7,            // Operation timed out
-    XSAN_ERROR_NOT_IMPLEMENTED = -8,    // Feature or function not implemented
-    XSAN_ERROR_SYSTEM = -9,             // Catch-all for unmapped system/errno
-    XSAN_ERROR_PERMISSION_DENIED = -10, // General permission issue
-    XSAN_ERROR_RESOURCE_BUSY = -11,     // Resource is currently busy/locked
-    XSAN_ERROR_INTERRUPTED = -12,       // Operation was interrupted
-    XSAN_ERROR_ALREADY_EXISTS = -13,    // Item or resource already exists
-    XSAN_ERROR_NOT_INITIALIZED = -14,   // Resource/module not initialized
-
-    /* File System & Disk Errors */
-    XSAN_ERROR_FILE_NOT_FOUND = -20,    // Specific to files
-    XSAN_ERROR_FILE_EXISTS = -21,       // Specific to files
-    XSAN_ERROR_DISK_FULL = -22,         // Disk is full
-    XSAN_ERROR_INSUFFICIENT_SPACE = -23,// Generic insufficient space (can be disk, memory, etc.)
-    XSAN_ERROR_CHECKSUM_MISMATCH = -24, // Data integrity check failed
-    XSAN_ERROR_INVALID_OFFSET = -25,    // Invalid offset for I/O
-    XSAN_ERROR_INVALID_SIZE = -26,      // Invalid size for I/O or allocation
-
-    /* Network Specific Errors */
-    XSAN_ERROR_CONNECTION_LOST = -40,   // Connection was unexpectedly lost
-    XSAN_ERROR_ADDRESS_IN_USE = -41,    // Network address (IP/port) already in use
-    XSAN_ERROR_CONNECTION_REFUSED = -42,// Connection was actively refused
-    XSAN_ERROR_HOST_UNREACHABLE = -43,  // Host cannot be reached
-    XSAN_ERROR_NETWORK_DOWN = -44,      // Network interface/subsystem is down
-
-    /* Cluster Errors */
-    XSAN_ERROR_CLUSTER_GENERIC = -60,
-    XSAN_ERROR_NODE_NOT_FOUND = -61,
-    XSAN_ERROR_NODE_EXISTS = -62,
-    XSAN_ERROR_NODE_UNREACHABLE = -63,
-    XSAN_ERROR_SPLIT_BRAIN = -64,       // Cluster partition leading to multiple masters
-    XSAN_ERROR_QUORUM_LOST = -65,       // Not enough nodes for quorum
-    XSAN_ERROR_CLUSTER_NOT_READY = -66, // Cluster is not in a state to perform operation
+// Deprecated: src/include/xsan_error.h
+#error "Do not use src/include/xsan_error.h. Use include/xsan_error.h instead."
     XSAN_ERROR_INVALID_NODE_STATE = -67,// Node is in an invalid state for the operation
 
     /* Storage & Device Errors */

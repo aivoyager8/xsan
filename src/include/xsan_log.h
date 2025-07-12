@@ -1,3 +1,7 @@
+/**
+ * Cleanup logging subsystem (for tests)
+ */
+void xsan_log_cleanup(void);
 #ifndef XSAN_LOG_H
 #define XSAN_LOG_H
 

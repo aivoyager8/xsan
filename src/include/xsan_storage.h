@@ -24,13 +24,15 @@ typedef enum {
 } xsan_storage_state_t;
 
 // --- Type Definitions for IDs ---
-typedef xsan_uuid_t xsan_node_id_t;       // Unique identifier for a node in the cluster
-typedef xsan_uuid_t xsan_disk_id_t;       // Using UUID for unique disk identification
-typedef xsan_uuid_t xsan_group_id_t;      // Using UUID for unique disk group identification
-typedef xsan_uuid_t xsan_volume_id_t;     // Using UUID for unique logical volume identification
+// xsan_node_id_t, xsan_disk_id_t, xsan_group_id_t, xsan_volume_id_t 类型定义已在 xsan_types.h 统一定义，避免重复定义
+
+// struct xsan_volume 统一定义在此，其他头文件仅前置声明
+// 仅保留下方完整定义，删除此处重复定义
 
 // --- Constants ---
+#ifndef XSAN_MAX_REPLICAS
 #define XSAN_MAX_REPLICAS 3               // Maximum number of replicas for a volume (e.g., FTT=2 -> 3 replicas)
+#endif
 
 // --- Structures for Replication ---
 /**

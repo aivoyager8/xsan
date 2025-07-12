@@ -1,3 +1,6 @@
+#include "xsan_storage.h" // For xsan_volume_t, xsan_disk_t (potentially needed for context)
+
+#include "xsan_storage.h" // For xsan_volume_t
 #ifndef XSAN_IO_H
 #define XSAN_IO_H
 
@@ -16,15 +19,8 @@ struct spdk_bdev_io;
 extern "C" {
 #endif
 
-/**
- * @brief User-level I/O completion callback function type.
- * This callback is invoked when an asynchronous I/O operation initiated by
- * XSAN (e.g., xsan_volume_read_async) completes.
- *
- * @param cb_arg The user-provided context argument passed during the async call.
- * @param status XSAN_OK if the I/O was successful, or an xsan_error_t code on failure.
- */
-typedef void (*xsan_user_io_completion_cb_t)(void *cb_arg, xsan_error_t status);
+
+// xsan_user_io_completion_cb_t 类型已在 xsan_types.h 定义，无需重复声明
 
 /**
  * @brief Structure to encapsulate an XSAN I/O request.

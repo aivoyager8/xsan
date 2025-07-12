@@ -89,7 +89,6 @@ typedef struct xsan_storage_config {
 
 #include "xsan_types.h" // For xsan_node_t, xsan_uuid_t
 
-#define XSAN_MAX_SEED_NODES 32 // Define max seed nodes for config
 
 /* 集群配置 */
 typedef struct xsan_cluster_config {

@@ -10,7 +10,7 @@
 xsan_replicated_io_ctx_t *xsan_replicated_io_ctx_create(
     xsan_user_io_completion_cb_t original_user_cb,
     void *original_user_cb_arg,
-    struct xsan_volume *vol,
+    xsan_volume_t *vol,
     const void *user_buffer,
     uint64_t offset,
     uint64_t length,

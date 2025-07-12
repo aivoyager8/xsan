@@ -15,6 +15,7 @@ target_link_libraries(xsan_test_infrastructure PRIVATE
     # Add any other specific xsan libraries test_infrastructure.c needs
     cunit        # Link against CUnit
     Threads::Threads # For pthreads if needed
+    ${XSAN_SPDK_LIBRARIES}
 )
 
 target_include_directories(xsan_test_infrastructure PRIVATE
