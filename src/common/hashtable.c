@@ -1,6 +1,6 @@
 #include "xsan_hashtable.h"
 #include "xsan_memory.h" // For XSAN_MALLOC, XSAN_CALLOC, XSAN_FREE
-#include "xsan_error.h"  // For error codes
+#include "../../include/xsan_error.h"
 #include <string.h>      // For memset
 
 // Default initial capacity if 0 is provided by the user
@@ -93,7 +93,7 @@ xsan_error_t xsan_hashtable_put(xsan_hashtable_t *ht, void *key, void *value) {
     // Key does not exist, create a new entry and add it to the front of the chain
     xsan_hashtable_entry_t *new_entry = (xsan_hashtable_entry_t *)XSAN_MALLOC(sizeof(xsan_hashtable_entry_t));
     if (!new_entry) {
-        return XSAN_ERROR_OUT_OF_MEMORY;
+        return XSAN_ERROR_NO_MEMORY;
     }
     new_entry->key = key;
     new_entry->value = value;
@@ -125,26 +125,23 @@ void *xsan_hashtable_get(xsan_hashtable_t *ht, const void *key) {
     return NULL; // Key not found
 }
 
-xsan_error_t xsan_hashtable_remove(xsan_hashtable_t *ht, const void *key) {
+xsan_error_t xsan_hashtable_remove(xsan_hashtable_t *ht, const void *key)
+{
     if (!ht || !key) {
         return XSAN_ERROR_INVALID_PARAM;
     }
-
     uint32_t hash = ht->hash_func(key);
     size_t index = hash % ht->capacity;
-
     xsan_hashtable_entry_t *current_entry = ht->buckets[index];
     xsan_hashtable_entry_t *prev_entry = NULL;
-
     while (current_entry != NULL) {
         if (ht->compare_func(current_entry->key, key) == 0) {
             // Key found, remove it from the chain
-            if (prev_entry == NULL) { // Entry is the head of the chain
-                ht->buckets[index] = current_entry->next;
-            } else {
+            if (prev_entry) {
                 prev_entry->next = current_entry->next;
+            } else {
+                ht->buckets[index] = current_entry->next;
             }
-
             if (ht->key_destroy_func) {
                 ht->key_destroy_func(current_entry->key);
             }
@@ -158,21 +155,27 @@ xsan_error_t xsan_hashtable_remove(xsan_hashtable_t *ht, const void *key) {
         prev_entry = current_entry;
         current_entry = current_entry->next;
     }
-    return XSAN_ERROR_NOT_FOUND; // Key not found
+    return XSAN_ERROR_NOT_FOUND;
+// ...existing code...
 }
 
-size_t xsan_hashtable_size(xsan_hashtable_t *ht) {
-    return ht ? ht->size : 0;
+size_t xsan_hashtable_size(xsan_hashtable_t *ht)
+{
+    if (!ht) {
+        return 0;
+    }
+    return ht->size;
 }
 
-void xsan_hashtable_clear(xsan_hashtable_t *ht) {
+void xsan_hashtable_clear(xsan_hashtable_t *ht)
+{
     if (!ht) {
         return;
     }
     for (size_t i = 0; i < ht->capacity; ++i) {
         xsan_hashtable_entry_t *entry = ht->buckets[i];
-        while (entry != NULL) {
-            xsan_hashtable_entry_t *next_entry = entry->next;
+        while (entry) {
+            xsan_hashtable_entry_t *next = entry->next;
             if (ht->key_destroy_func) {
                 ht->key_destroy_func(entry->key);
             }
@@ -180,43 +183,38 @@ void xsan_hashtable_clear(xsan_hashtable_t *ht) {
                 ht->value_destroy_func(entry->value);
             }
             XSAN_FREE(entry);
-            entry = next_entry;
+            entry = next;
         }
-        ht->buckets[i] = NULL; // Clear the bucket pointer
+        ht->buckets[i] = NULL;
     }
     ht->size = 0;
 }
-
+// ...函数体结束，无需多余闭括号...
 void xsan_hashtable_iter_init(xsan_hashtable_t *ht, xsan_hashtable_iter_t *iter) {
     if (!ht || !iter) {
-        if (iter) iter->ht = NULL; // Mark iterator as invalid if ht is NULL
+        if (iter) iter->ht = NULL;
         return;
     }
     iter->ht = ht;
     iter->current_bucket_index = 0;
-    iter->current_entry = NULL; // Will be advanced to the first entry by iter_next
+    iter->current_entry = NULL;
 }
 
+// 哈希表迭代器遍历下一个元素
 bool xsan_hashtable_iter_next(xsan_hashtable_iter_t *iter, void **key, void **value) {
     if (!iter || !iter->ht) {
         return false;
     }
-
-    // If there's a current entry, try to move to the next in its chain
     if (iter->current_entry) {
         iter->current_entry = iter->current_entry->next;
     }
-
-    // If current_entry is NULL (either from start or end of a chain), find the next non-empty bucket
     while (iter->current_entry == NULL) {
         if (iter->current_bucket_index >= iter->ht->capacity) {
-            return false; // Reached the end of all buckets
+            return false;
         }
         iter->current_entry = iter->ht->buckets[iter->current_bucket_index];
-        iter->current_bucket_index++; // Prepare for the next bucket search
+        iter->current_bucket_index++;
     }
-
-    // Found an entry
     if (key) {
         *key = iter->current_entry->key;
     }

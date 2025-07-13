@@ -53,13 +53,13 @@ void xsan_bdev_subsystem_fini(void) {
 
 xsan_error_t xsan_bdev_list_get_all(xsan_bdev_info_t **bdev_list_out, int *count_out) {
     if (!bdev_list_out || !count_out) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     if (spdk_get_thread() == NULL) {
         XSAN_LOG_ERROR("xsan_bdev_list_get_all must be called from an SPDK thread.");
         *bdev_list_out = NULL;
         *count_out = 0;
-        return XSAN_ERROR_THREAD_CONTEXT;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     struct spdk_bdev *bdev_iter = NULL;
@@ -81,7 +81,7 @@ xsan_error_t xsan_bdev_list_get_all(xsan_bdev_info_t **bdev_list_out, int *count
     if (!list) {
         *bdev_list_out = NULL;
         *count_out = 0;
-        return XSAN_ERROR_OUT_OF_MEMORY;
+        return XSAN_ERROR_NO_MEMORY;
     }
 
     int idx = 0;
@@ -207,19 +207,19 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
                                          bool use_internal_dma_alloc,
                                          bool is_read_op) {
     if (!bdev_name || !app_payload_buf || num_blocks == 0) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     struct spdk_thread *current_thread = spdk_get_thread();
     if (current_thread == NULL) {
         XSAN_LOG_ERROR("Synchronous bdev I/O (bdev: %s) must be called from an SPDK thread.", bdev_name);
-        return XSAN_ERROR_THREAD_CONTEXT;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     struct spdk_bdev *bdev = spdk_bdev_get_by_name(bdev_name);
     if (!bdev) {
         XSAN_LOG_ERROR("Bdev '%s' not found for I/O operation.", bdev_name);
-        return XSAN_ERROR_NOT_FOUND;
+        return XSAN_ERROR_VM_NOT_FOUND;
     }
 
     uint32_t block_size = spdk_bdev_get_block_size(bdev);
@@ -228,7 +228,7 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
     if (app_payload_buf_len < required_io_len) {
         XSAN_LOG_ERROR("User buffer (len %zu) too small for I/O on bdev '%s'. Required: %zu",
                        app_payload_buf_len, bdev_name, required_io_len);
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     struct spdk_bdev_desc *desc = NULL;
@@ -243,7 +243,7 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
     if (!ch) {
         XSAN_LOG_ERROR("Failed to get I/O channel for bdev '%s'", bdev_name);
         spdk_bdev_close(desc);
-        return XSAN_ERROR_IO;
+        return XSAN_ERROR_STORAGE_IO;
     }
 
     void *dma_buf_internal = NULL;
@@ -256,7 +256,7 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
             XSAN_LOG_ERROR("Failed to allocate internal DMA buffer (size %zu) for I/O on bdev '%s'", required_io_len, bdev_name);
             spdk_put_io_channel(ch); // Correct cleanup for channel
             spdk_bdev_close(desc);
-            return XSAN_ERROR_OUT_OF_MEMORY;
+            return XSAN_ERROR_NO_MEMORY;
         }
         actual_io_buf = dma_buf_internal;
         if (!is_read_op) { // For write, copy from user_buf to dma_buf_internal
@@ -278,7 +278,7 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
         // -ENOMEM means SPDK couldn't allocate an spdk_bdev_io. Other errors are also possible.
         XSAN_LOG_ERROR("Failed to submit %s I/O for bdev '%s': %s (rc=%d)",
                        is_read_op ? "read" : "write", bdev_name, spdk_strerror(-rc), rc);
-        err = (rc == -ENOMEM) ? XSAN_ERROR_OUT_OF_MEMORY : XSAN_ERROR_IO;
+        err = (rc == -ENOMEM) ? XSAN_ERROR_NO_MEMORY : XSAN_ERROR_STORAGE_IO;
     } else {
         // Poll for completion. This is a very basic poll.
         // This function MUST be on an SPDK thread that is a poller, or it must call spdk_thread_poll().
@@ -297,7 +297,7 @@ static xsan_error_t _xsan_bdev_do_sync_io(const char *bdev_name,
 
         if (io_ctx.bdev_io_status != SPDK_BDEV_IO_STATUS_SUCCESS) {
             XSAN_LOG_ERROR("SPDK I/O operation failed for bdev '%s' with bdev_io_status: %d", bdev_name, io_ctx.bdev_io_status);
-            err = XSAN_ERROR_IO;
+            err = XSAN_ERROR_STORAGE_IO;
         } else {
             // If read and using internal DMA buffer, copy data back to user buffer
             if (is_read_op && use_internal_dma_alloc) {

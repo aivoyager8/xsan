@@ -1,7 +1,8 @@
+// 节点通信实现
 #include "xsan_node_comm.h"
 #include "xsan_protocol.h"
 #include "xsan_memory.h"
-#include "xsan_error.h"
+#include "../../include/xsan_error.h" // 统一错误码头文件
 #include "xsan_log.h"
 #include "xsan_string_utils.h"
 
@@ -388,7 +389,7 @@ xsan_error_t xsan_node_comm_connect(const char *target_ip, uint16_t target_port,
         (xsan_pending_connect_op_t *)XSAN_MALLOC(sizeof(xsan_pending_connect_op_t));
     if (!pending_op) {
         XSAN_LOG_ERROR("Failed to allocate context for pending connect operation.");
-        return XSAN_ERROR_OUT_OF_MEMORY;
+        return XSAN_ERROR_NO_MEMORY;
     }
     pending_op->user_cb = connect_cb;
     pending_op->user_cb_arg = cb_arg;
@@ -427,13 +428,13 @@ xsan_error_t xsan_node_comm_send_msg(struct spdk_sock *sock, xsan_message_t *msg
 
     if (conn_ctx->current_send_cb) {
         XSAN_LOG_WARN("Send already in progress for connection %s. Request rejected.", conn_ctx->peer_addr_str);
-        return XSAN_ERROR_RESOURCE_BUSY;
+        return XSAN_ERROR_BUSY;
     }
 
     unsigned char header_buf[XSAN_MESSAGE_HEADER_SIZE];
     if (xsan_protocol_header_serialize(&msg->header, header_buf) != XSAN_OK) {
         XSAN_LOG_ERROR("Failed to serialize msg header for sending to %s.", conn_ctx->peer_addr_str);
-        return XSAN_ERROR_PROTOCOL_GENERIC;
+        return XSAN_ERROR_GENERIC;
     }
 
     struct iovec iov[2];

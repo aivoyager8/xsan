@@ -1,6 +1,7 @@
+// 事件循环实现
 #include "xsan_event_loop.h"
 #include "xsan_memory.h" // For XSAN_MALLOC, XSAN_FREE, XSAN_CALLOC
-#include "xsan_error.h"  // For error codes
+#include "../../include/xsan_error.h"  // 统一错误码头文件
 #include <sys/epoll.h>   // For epoll functions
 #include <unistd.h>      // For close()
 #include <stdlib.h>      // For NULL
@@ -65,12 +66,12 @@ static xsan_error_t ensure_fd_map_capacity(xsan_event_loop_t *loop, int fd) {
 
     // Check for excessively large FD values that might indicate an error or extreme case
     if (new_capacity > 1024 * 1024) { // Arbitrary sanity limit (e.g. ~1 million FDs)
-        return XSAN_ERROR_OUT_OF_MEMORY; // Or a more specific "FD too large"
+        return XSAN_ERROR_NO_MEMORY; // Or a more specific "FD too large"
     }
 
     xsan_fd_event_data_t *new_map = (xsan_fd_event_data_t *)XSAN_CALLOC(new_capacity, sizeof(xsan_fd_event_data_t));
     if (!new_map) {
-        return XSAN_ERROR_OUT_OF_MEMORY;
+        return XSAN_ERROR_NO_MEMORY;
     }
 
     if (loop->fd_data_map) {
@@ -138,7 +139,7 @@ void xsan_event_loop_destroy(xsan_event_loop_t *loop) {
 xsan_error_t xsan_event_loop_add_fd(xsan_event_loop_t *loop, int fd, uint32_t events,
                                     xsan_event_callback_t callback, void *user_data) {
     if (!loop || fd < 0 || !callback) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     xsan_error_t err = ensure_fd_map_capacity(loop, fd);
@@ -163,7 +164,7 @@ xsan_error_t xsan_event_loop_add_fd(xsan_event_loop_t *loop, int fd, uint32_t ev
 xsan_error_t xsan_event_loop_modify_fd(xsan_event_loop_t *loop, int fd, uint32_t events,
                                        xsan_event_callback_t callback, void *user_data) {
     if (!loop || fd < 0 || !callback) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     // ensure_fd_map_capacity should ideally not be needed if fd was already added,
@@ -199,7 +200,7 @@ xsan_error_t xsan_event_loop_modify_fd(xsan_event_loop_t *loop, int fd, uint32_t
 
 xsan_error_t xsan_event_loop_remove_fd(xsan_event_loop_t *loop, int fd) {
     if (!loop || fd < 0) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     // For EPOLL_CTL_DEL, the event struct passed to epoll_ctl can be NULL (on Linux >= 2.6.9)

@@ -2,7 +2,7 @@
 #define XSAN_DISK_MANAGER_H
 
 #include "xsan_storage.h" // For xsan_disk_t, xsan_disk_group_t, xsan_disk_id_t, etc.
-#include "xsan_error.h"   // For xsan_error_t
+#include "../../include/xsan_error.h"
 // We will use xsan_list_t from "xsan_list.h" for internal management.
 // #include "xsan_list.h" // Not directly exposed in this header's API for manager instance
 

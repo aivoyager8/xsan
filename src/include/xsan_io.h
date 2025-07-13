@@ -4,7 +4,8 @@
 #ifndef XSAN_IO_H
 #define XSAN_IO_H
 
-#include "xsan_types.h" // For xsan_error_t, xsan_volume_id_t, xsan_disk_id_t
+#include "xsan_types.h"
+#include "../../include/xsan_error.h"
 #include "xsan_storage.h" // For xsan_volume_t, xsan_disk_t (potentially needed for context)
 #include <stdint.h>
 #include <stdbool.h>

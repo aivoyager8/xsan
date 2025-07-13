@@ -9,7 +9,7 @@
 #include <string.h>
 #include <getopt.h>
 
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_log.h"
 #include "xsan_types.h"
 

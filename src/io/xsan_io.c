@@ -1,7 +1,7 @@
 #include "xsan_io.h"
 #include "xsan_bdev.h"         // For xsan_bdev_dma_malloc/free, xsan_bdev_get_buf_align
 #include "xsan_memory.h"       // For XSAN_MALLOC, XSAN_FREE
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_log.h"
 #include "xsan_string_utils.h" // For xsan_strcpy_safe
 
@@ -210,7 +210,7 @@ xsan_error_t xsan_io_submit_request_to_bdev(xsan_io_request_t *io_req) {
                 if (io_req->io_channel) spdk_put_io_channel(io_req->io_channel);
                 if (io_req->bdev_desc) spdk_bdev_close(io_req->bdev_desc);
             }
-            return XSAN_ERROR_OUT_OF_MEMORY;
+            return XSAN_ERROR_NO_MEMORY;
         }
         io_req->dma_buffer_is_internal = true;
         io_req->dma_buffer_size = physical_io_size;
@@ -249,7 +249,7 @@ xsan_error_t xsan_io_submit_request_to_bdev(xsan_io_request_t *io_req) {
     if (spdk_rc != 0) {
         XSAN_LOG_ERROR("Failed to submit SPDK %s request for bdev '%s': %s (rc=%d)",
                        io_req->is_read_op ? "read" : "write", io_req->target_bdev_name, spdk_strerror(-spdk_rc), spdk_rc);
-        err = (spdk_rc == -ENOMEM) ? XSAN_ERROR_OUT_OF_MEMORY : XSAN_ERROR_IO;
+        err = (spdk_rc == -ENOMEM) ? XSAN_ERROR_NO_MEMORY : XSAN_ERROR_IO;
 
         // Critical: If submission failed, the SPDK completion callback will NOT be called.
         // So, we must clean up resources here and then call the user's callback with error, then free io_req.

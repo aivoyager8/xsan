@@ -1,6 +1,6 @@
 #include "xsan_nvmf_target.h"
 #include "xsan_log.h"
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_memory.h" // For XSAN_STRDUP if needed for NQN copy
 
 #include "spdk/stdinc.h"
@@ -65,7 +65,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
     g_xsan_nvmf_tgt = spdk_nvmf_tgt_create(NULL); // Use default opts
     if (!g_xsan_nvmf_tgt) {
         XSAN_LOG_ERROR("spdk_nvmf_tgt_create() failed.");
-        return XSAN_ERROR_SPDK_API; // Define this error
+        return XSAN_ERROR_IO; // SPDK API 错误统一用 XSAN_ERROR_IO
     }
 
     // 2. Create and configure the TCP transport (common default)
@@ -80,7 +80,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
         XSAN_LOG_ERROR("spdk_nvmf_transport_create('TCP') failed.");
         spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt, NULL, NULL);
         g_xsan_nvmf_tgt = NULL;
-        return XSAN_ERROR_SPDK_API;
+        return XSAN_ERROR_IO;
     }
     // g_xsan_tcp_transport = tcp_transport; // Store if needed for specific operations later
 
@@ -99,7 +99,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
         // Let's defer transport destruction to fini.
         spdk_nvmf_tgt_destroy(g_xsan_nvmf_tgt, NULL, NULL);
         g_xsan_nvmf_tgt = NULL;
-        return XSAN_ERROR_SPDK_API;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     // Configure the subsystem (e.g., allow any host to connect for simplicity)
@@ -135,7 +135,7 @@ xsan_error_t xsan_nvmf_target_init(const char *target_nqn_param,
         // Complex cleanup needed here as listener might be active
         // For simplicity, we might leak some resources on this specific error path
         // or rely on higher level fini to clean up.
-        return XSAN_ERROR_SPDK_API;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     XSAN_LOG_INFO("XSAN NVMe-oF Target initialized and default subsystem NQN '%s' started.", used_nqn);
@@ -228,7 +228,7 @@ xsan_error_t xsan_nvmf_target_add_namespace(const char *bdev_name, uint32_t nsid
     if (actual_nsid == 0) { // spdk_nvmf_subsystem_add_ns returns 0 on failure, or the assigned NSID on success.
         XSAN_LOG_ERROR("spdk_nvmf_subsystem_add_ns() failed for bdev '%s' on NQN %s.",
                        bdev_name, spdk_nvmf_subsystem_get_nqn(g_xsan_default_subsystem));
-        return XSAN_ERROR_SPDK_API;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     XSAN_LOG_INFO("Namespace (NSID: %u) added for bdev '%s' to subsystem NQN '%s'.",
@@ -249,7 +249,7 @@ xsan_error_t xsan_nvmf_target_remove_namespace(uint32_t nsid) {
     if (rc != 0) {
         XSAN_LOG_ERROR("spdk_nvmf_subsystem_remove_ns() failed for NSID %u on NQN %s: %s",
                        nsid, spdk_nvmf_subsystem_get_nqn(g_xsan_default_subsystem), spdk_strerror(-rc));
-        return XSAN_ERROR_SPDK_API;
+        return XSAN_ERROR_TASK_FAILED;
     }
 
     XSAN_LOG_INFO("Namespace (NSID: %u) removed from subsystem NQN '%s'.",

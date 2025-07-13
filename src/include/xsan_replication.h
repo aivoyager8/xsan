@@ -6,6 +6,7 @@
 #include "xsan_types.h"    // For xsan_error_t
 #include "xsan_io.h"       // For xsan_io_request_t, xsan_user_io_completion_cb_t
 #include "xsan_storage.h"  // For XSAN_MAX_REPLICAS, xsan_volume_id_t
+#include "../../include/xsan_error.h"
 #include <pthread.h>       // For pthread_mutex_t (if needed for future concurrent access)
 
 #ifdef __cplusplus

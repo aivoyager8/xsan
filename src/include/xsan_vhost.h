@@ -1,3 +1,4 @@
+#include "../../include/xsan_error.h"
 #include "xsan_storage.h" // For xsan_volume_t, xsan_volume_id_t
 #ifndef XSAN_VHOST_H
 #define XSAN_VHOST_H

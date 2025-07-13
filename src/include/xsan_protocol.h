@@ -3,7 +3,8 @@
 #define XSAN_PROTOCOL_H
 
 #include "xsan_storage.h" // For xsan_volume_id_t, xsan_storage_state_t, xsan_volume_t
-#include "xsan_types.h" // For xsan_error_t
+#include "xsan_types.h"
+#include "../../../include/xsan_error.h"
 #include <stdint.h>     // For uint32_t, uint64_t
 #include <stddef.h>     // For size_t
 #include <stdbool.h>    // For bool

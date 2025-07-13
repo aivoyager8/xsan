@@ -7,7 +7,7 @@
 #include "xsan_io.h"
 #include "xsan_node_comm.h"
 #include "xsan_vhost.h" // Included, though not actively used in current E2E test
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_string_utils.h"
 #include "xsan_cluster.h"
 #include "xsan_nvmf_target.h"

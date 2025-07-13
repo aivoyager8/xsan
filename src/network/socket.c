@@ -1,5 +1,6 @@
+// Socket 实现
 #include "xsan_socket.h"
-#include "xsan_error.h"
+#include "../../include/xsan_error.h" // 统一错误码头文件
 #include "xsan_string_utils.h" // For xsan_snprintf_safe
 #include <errno.h>
 #include <string.h> // For memset, strchr, strrchr, strlen
@@ -66,7 +67,7 @@ int xsan_socket_create(xsan_socket_type_t type, xsan_socket_family_t family) {
 
 xsan_error_t xsan_socket_close(int sockfd) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     if (close(sockfd) == -1) {
         return xsan_error_from_errno(errno);
@@ -76,7 +77,7 @@ xsan_error_t xsan_socket_close(int sockfd) {
 
 xsan_error_t xsan_socket_shutdown(int sockfd, int how) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     if (shutdown(sockfd, how) == -1) {
         return xsan_error_from_errno(errno);
@@ -86,7 +87,7 @@ xsan_error_t xsan_socket_shutdown(int sockfd, int how) {
 
 xsan_error_t xsan_socket_bind(int sockfd, const char *ip_address, uint16_t port) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     struct sockaddr_storage ss;
@@ -134,7 +135,7 @@ xsan_error_t xsan_socket_bind(int sockfd, const char *ip_address, uint16_t port)
 
 xsan_error_t xsan_socket_listen(int sockfd, int backlog) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     if (listen(sockfd, backlog) == -1) {
         return xsan_error_from_errno(errno);
@@ -174,7 +175,7 @@ int xsan_socket_accept(int sockfd, xsan_address_t *client_addr) {
 
 xsan_error_t xsan_socket_connect(int sockfd, const char *remote_ip, uint16_t port) {
     if (sockfd == XSAN_INVALID_SOCKET || !remote_ip) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     struct sockaddr_storage ss;
     socklen_t addr_len;
@@ -194,7 +195,7 @@ xsan_error_t xsan_socket_connect(int sockfd, const char *remote_ip, uint16_t por
 xsan_error_t xsan_socket_send(int sockfd, const void *buffer, size_t length, ssize_t *bytes_sent) {
     if (sockfd == XSAN_INVALID_SOCKET || !buffer || !bytes_sent) {
         if(bytes_sent) *bytes_sent = -1;
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     *bytes_sent = send(sockfd, buffer, length, 0); // Flags typically 0 for basic send
     if (*bytes_sent == -1) {
@@ -206,7 +207,7 @@ xsan_error_t xsan_socket_send(int sockfd, const void *buffer, size_t length, ssi
 xsan_error_t xsan_socket_receive(int sockfd, void *buffer, size_t length, ssize_t *bytes_received) {
     if (sockfd == XSAN_INVALID_SOCKET || !buffer || !bytes_received) {
         if(bytes_received) *bytes_received = -1;
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     *bytes_received = recv(sockfd, buffer, length, 0); // Flags typically 0
     if (*bytes_received == -1) {
@@ -229,7 +230,7 @@ xsan_error_t xsan_socket_sendto(int sockfd, const void *buffer, size_t length,
                                 const char *dest_ip, uint16_t dest_port, ssize_t *bytes_sent) {
     if (sockfd == XSAN_INVALID_SOCKET || !buffer || !dest_ip || !bytes_sent) {
         if(bytes_sent) *bytes_sent = -1;
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     struct sockaddr_storage ss;
     socklen_t addr_len;
@@ -249,7 +250,7 @@ xsan_error_t xsan_socket_recvfrom(int sockfd, void *buffer, size_t length,
                                   xsan_address_t *sender_addr, ssize_t *bytes_received) {
     if (sockfd == XSAN_INVALID_SOCKET || !buffer || !bytes_received) {
         if(bytes_received) *bytes_received = -1;
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     struct sockaddr_storage ss;
     socklen_t addr_len = sizeof(ss);
@@ -278,7 +279,7 @@ xsan_error_t xsan_socket_recvfrom(int sockfd, void *buffer, size_t length,
 
 xsan_error_t xsan_socket_set_nonblocking(int sockfd) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     int flags = fcntl(sockfd, F_GETFL, 0);
     if (flags == -1) {
@@ -292,7 +293,7 @@ xsan_error_t xsan_socket_set_nonblocking(int sockfd) {
 
 xsan_error_t xsan_socket_set_blocking(int sockfd) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     int flags = fcntl(sockfd, F_GETFL, 0);
     if (flags == -1) {
@@ -306,7 +307,7 @@ xsan_error_t xsan_socket_set_blocking(int sockfd) {
 
 xsan_error_t xsan_socket_set_reuseaddr(int sockfd, bool enable) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     int optval = enable ? 1 : 0;
     if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
@@ -317,7 +318,7 @@ xsan_error_t xsan_socket_set_reuseaddr(int sockfd, bool enable) {
 
 xsan_error_t xsan_socket_set_tcp_nodelay(int sockfd, bool enable) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     int optval = enable ? 1 : 0;
     if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(optval)) == -1) {
@@ -329,7 +330,7 @@ xsan_error_t xsan_socket_set_tcp_nodelay(int sockfd, bool enable) {
 xsan_error_t xsan_socket_set_keepalive(int sockfd, bool enable,
                                        int idle_time_sec, int interval_sec, int count_probes) {
     if (sockfd == XSAN_INVALID_SOCKET) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     int optval = enable ? 1 : 0;
     if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)) == -1) {
@@ -364,7 +365,7 @@ xsan_error_t xsan_socket_set_keepalive(int sockfd, bool enable,
 
 xsan_error_t xsan_socket_get_local_address(int sockfd, xsan_address_t *local_addr) {
     if (sockfd == XSAN_INVALID_SOCKET || !local_addr) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     struct sockaddr_storage ss;
     socklen_t addr_len = sizeof(ss);
@@ -380,14 +381,14 @@ xsan_error_t xsan_socket_get_local_address(int sockfd, xsan_address_t *local_add
         inet_ntop(AF_INET6, &s_in6->sin6_addr, local_addr->ip, INET6_ADDRSTRLEN);
         local_addr->port = ntohs(s_in6->sin6_port);
     } else {
-        return XSAN_ERROR_NETWORK; // Unknown family
+        return XSAN_ERROR_NETWORK_DOWN; // Unknown family
     }
     return XSAN_OK;
 }
 
 xsan_error_t xsan_socket_get_peer_address(int sockfd, xsan_address_t *peer_addr) {
     if (sockfd == XSAN_INVALID_SOCKET || !peer_addr) {
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     struct sockaddr_storage ss;
     socklen_t addr_len = sizeof(ss);
@@ -403,7 +404,7 @@ xsan_error_t xsan_socket_get_peer_address(int sockfd, xsan_address_t *peer_addr)
         inet_ntop(AF_INET6, &s_in6->sin6_addr, peer_addr->ip, INET6_ADDRSTRLEN);
         peer_addr->port = ntohs(s_in6->sin6_port);
     } else {
-        return XSAN_ERROR_NETWORK; // Unknown family
+        return XSAN_ERROR_NETWORK_DOWN; // Unknown family
     }
     return XSAN_OK;
 }

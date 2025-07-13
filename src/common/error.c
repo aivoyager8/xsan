@@ -38,53 +38,21 @@ static const char *error_messages[ERROR_MESSAGES_ARRAY_SIZE];
  * However, to maintain the array lookup for potential performance/simplicity:
  */
 static void initialize_error_messages() {
-    // Initialize all to "Unknown error" or NULL first if not using designated initializers fully.
-    // For this example, assuming direct assignment. If compiler supports it for all:
-    error_messages[0] = "Success"; // For XSAN_OK
-
-    // Generic Errors
+    error_messages[0] = "Success";
     error_messages[abs(XSAN_ERROR_GENERIC)] = "Generic error";
     error_messages[abs(XSAN_ERROR_INVALID_PARAM)] = "Invalid parameter";
-    error_messages[abs(XSAN_ERROR_OUT_OF_MEMORY)] = "Out of memory";
+    error_messages[abs(XSAN_ERROR_NO_MEMORY)] = "Out of memory";
     error_messages[abs(XSAN_ERROR_IO)] = "I/O error";
     error_messages[abs(XSAN_ERROR_NETWORK)] = "Network error";
     error_messages[abs(XSAN_ERROR_NOT_FOUND)] = "Not found";
     error_messages[abs(XSAN_ERROR_TIMEOUT)] = "Operation timed out";
-    error_messages[abs(XSAN_ERROR_NOT_IMPLEMENTED)] = "Feature or function not implemented";
+    error_messages[abs(XSAN_ERROR_UNSUPPORTED)] = "Feature or function not implemented";
     error_messages[abs(XSAN_ERROR_SYSTEM)] = "System error";
     error_messages[abs(XSAN_ERROR_PERMISSION_DENIED)] = "Permission denied";
-    error_messages[abs(XSAN_ERROR_RESOURCE_BUSY)] = "Resource busy";
+    error_messages[abs(XSAN_ERROR_BUSY)] = "Resource busy";
     error_messages[abs(XSAN_ERROR_INTERRUPTED)] = "Operation interrupted";
     error_messages[abs(XSAN_ERROR_ALREADY_EXISTS)] = "Item or resource already exists";
     error_messages[abs(XSAN_ERROR_NOT_INITIALIZED)] = "Resource or module not initialized";
-
-    // File System & Disk Errors
-    error_messages[abs(XSAN_ERROR_FILE_NOT_FOUND)] = "File not found";
-    error_messages[abs(XSAN_ERROR_FILE_EXISTS)] = "File exists";
-    error_messages[abs(XSAN_ERROR_DISK_FULL)] = "Disk full";
-    error_messages[abs(XSAN_ERROR_INSUFFICIENT_SPACE)] = "Insufficient space";
-    error_messages[abs(XSAN_ERROR_CHECKSUM_MISMATCH)] = "Checksum mismatch";
-    error_messages[abs(XSAN_ERROR_INVALID_OFFSET)] = "Invalid offset";
-    error_messages[abs(XSAN_ERROR_INVALID_SIZE)] = "Invalid size";
-
-    // Network Specific Errors
-    error_messages[abs(XSAN_ERROR_CONNECTION_LOST)] = "Connection lost";
-    error_messages[abs(XSAN_ERROR_ADDRESS_IN_USE)] = "Address in use";
-    error_messages[abs(XSAN_ERROR_CONNECTION_REFUSED)] = "Connection refused";
-    error_messages[abs(XSAN_ERROR_HOST_UNREACHABLE)] = "Host unreachable";
-    error_messages[abs(XSAN_ERROR_NETWORK_DOWN)] = "Network down";
-
-    // Cluster Errors
-    error_messages[abs(XSAN_ERROR_CLUSTER_GENERIC)] = "Cluster error";
-    error_messages[abs(XSAN_ERROR_NODE_NOT_FOUND)] = "Node not found";
-    error_messages[abs(XSAN_ERROR_NODE_EXISTS)] = "Node exists";
-    error_messages[abs(XSAN_ERROR_NODE_UNREACHABLE)] = "Node unreachable";
-    error_messages[abs(XSAN_ERROR_SPLIT_BRAIN)] = "Cluster split brain";
-    error_messages[abs(XSAN_ERROR_QUORUM_LOST)] = "Cluster quorum lost";
-    error_messages[abs(XSAN_ERROR_CLUSTER_NOT_READY)] = "Cluster not ready";
-    error_messages[abs(XSAN_ERROR_INVALID_NODE_STATE)] = "Invalid node state";
-
-    // Storage & Device Errors
     error_messages[abs(XSAN_ERROR_STORAGE_GENERIC)] = "Storage error";
     error_messages[abs(XSAN_ERROR_DEVICE_FAILED)] = "Device failed";
     error_messages[abs(XSAN_ERROR_DEVICE_NOT_FOUND)] = "Device not found";
@@ -93,8 +61,6 @@ static void initialize_error_messages() {
     error_messages[abs(XSAN_ERROR_VOLUME_BUSY)] = "Volume busy";
     error_messages[abs(XSAN_ERROR_BLOCK_NOT_FOUND)] = "Block not found";
     error_messages[abs(XSAN_ERROR_BLOCK_CORRUPTED)] = "Block corrupted";
-
-    // Replication Errors
     error_messages[abs(XSAN_ERROR_REPLICATION_GENERIC)] = "Replication error";
     error_messages[abs(XSAN_ERROR_REPLICA_NOT_FOUND)] = "Replica not found";
     error_messages[abs(XSAN_ERROR_REPLICA_OUTDATED)] = "Replica outdated";
@@ -102,45 +68,31 @@ static void initialize_error_messages() {
     error_messages[abs(XSAN_ERROR_CONSISTENCY_CHECK_FAILED)] = "Consistency check failed";
     error_messages[abs(XSAN_ERROR_RECOVERY_FAILED)] = "Recovery failed";
     error_messages[abs(XSAN_ERROR_NOT_ENOUGH_REPLICAS)] = "Not enough replicas";
-
-    // Policy Errors
     error_messages[abs(XSAN_ERROR_POLICY_GENERIC)] = "Policy error";
     error_messages[abs(XSAN_ERROR_POLICY_NOT_FOUND)] = "Policy not found";
     error_messages[abs(XSAN_ERROR_POLICY_VIOLATION)] = "Policy violation";
     error_messages[abs(XSAN_ERROR_QOS_LIMIT_EXCEEDED)] = "QoS limit exceeded";
-
-    // Virtualization Errors
     error_messages[abs(XSAN_ERROR_VIRTUALIZATION_GENERIC)] = "Virtualization error";
     error_messages[abs(XSAN_ERROR_LIBVIRT_FAILED)] = "libvirt operation failed";
     error_messages[abs(XSAN_ERROR_VM_NOT_FOUND)] = "Virtual machine not found";
     error_messages[abs(XSAN_ERROR_STORAGE_POOL_FAILED)] = "Storage pool operation failed";
-
-    // Configuration Errors
     error_messages[abs(XSAN_ERROR_CONFIG_GENERIC)] = "Configuration error";
     error_messages[abs(XSAN_ERROR_CONFIG_INVALID)] = "Invalid configuration";
     error_messages[abs(XSAN_ERROR_CONFIG_MISSING)] = "Missing configuration";
     error_messages[abs(XSAN_ERROR_CONFIG_PARSE)] = "Configuration parse error";
-
-    // Metadata Errors
     error_messages[abs(XSAN_ERROR_METADATA_GENERIC)] = "Metadata error";
     error_messages[abs(XSAN_ERROR_METADATA_READ_FAILED)] = "Metadata read failed";
     error_messages[abs(XSAN_ERROR_METADATA_WRITE_FAILED)] = "Metadata write failed";
     error_messages[abs(XSAN_ERROR_METADATA_CORRUPTED)] = "Metadata corrupted";
-
-    // Task/Job Errors
     error_messages[abs(XSAN_ERROR_TASK_GENERIC)] = "Task/Job error";
     error_messages[abs(XSAN_ERROR_TASK_NOT_FOUND)] = "Task/Job not found";
     error_messages[abs(XSAN_ERROR_TASK_FAILED)] = "Task/Job failed";
     error_messages[abs(XSAN_ERROR_TASK_CANCELLED)] = "Task/Job cancelled";
-
-    // Security Errors
     error_messages[abs(XSAN_ERROR_SECURITY_GENERIC)] = "Security error";
     error_messages[abs(XSAN_ERROR_AUTHENTICATION_FAILED)] = "Authentication failed";
     error_messages[abs(XSAN_ERROR_AUTHORIZATION_FAILED)] = "Authorization failed";
     error_messages[abs(XSAN_ERROR_ENCRYPTION_FAILED)] = "Encryption failed";
     error_messages[abs(XSAN_ERROR_DECRYPTION_FAILED)] = "Decryption failed";
-
-    // Threading & Context Errors
     error_messages[abs(XSAN_ERROR_THREAD_CONTEXT)] = "Operation called from an incorrect thread context";
 }
 
@@ -181,16 +133,16 @@ xsan_error_t xsan_error_from_errno(int sys_errno)
         case EINVAL:
             return XSAN_ERROR_INVALID_PARAM;
         case ENOMEM:
-            return XSAN_ERROR_OUT_OF_MEMORY;
+            return XSAN_ERROR_NO_MEMORY;
         case ENOENT:
-            return XSAN_ERROR_FILE_NOT_FOUND;
+            return XSAN_ERROR_NOT_FOUND;
         case EEXIST:
-            return XSAN_ERROR_FILE_EXISTS; // Or XSAN_ERROR_ALREADY_EXISTS if more general
+            return XSAN_ERROR_ALREADY_EXISTS; // 文件已存在
         case EACCES:
         case EPERM:
             return XSAN_ERROR_PERMISSION_DENIED;
         case EBUSY:
-            return XSAN_ERROR_RESOURCE_BUSY;
+            return XSAN_ERROR_BUSY;
         case ETIMEDOUT:
             return XSAN_ERROR_TIMEOUT;
         case EINTR:
@@ -265,8 +217,8 @@ int xsan_error_to_http_status(xsan_error_t error)
             return 403;  /* Forbidden */
         case XSAN_ERROR_AUTHENTICATION_FAILED:
             return 401; /* Unauthorized */
+        // case XSAN_ERROR_NOT_FOUND: // 已在前面处理，避免重复
         case XSAN_ERROR_NOT_FOUND:
-        case XSAN_ERROR_FILE_NOT_FOUND:
         case XSAN_ERROR_VOLUME_NOT_FOUND:
         case XSAN_ERROR_NODE_NOT_FOUND:
         case XSAN_ERROR_REPLICA_NOT_FOUND:
@@ -275,27 +227,27 @@ int xsan_error_to_http_status(xsan_error_t error)
         case XSAN_ERROR_TASK_NOT_FOUND:
         case XSAN_ERROR_DEVICE_NOT_FOUND:
             return 404;  /* Not Found */
+        // case XSAN_ERROR_ALREADY_EXISTS: // 已在前面处理，避免重复
         case XSAN_ERROR_ALREADY_EXISTS:
-        case XSAN_ERROR_FILE_EXISTS:
         case XSAN_ERROR_VOLUME_EXISTS:
         case XSAN_ERROR_NODE_EXISTS:
             return 409;  /* Conflict */
         case XSAN_ERROR_TIMEOUT:
             return 408;  /* Request Timeout */
-        case XSAN_ERROR_RESOURCE_BUSY:
+        case XSAN_ERROR_BUSY:
         case XSAN_ERROR_VOLUME_BUSY:
             return 423;  /* Locked */
         case XSAN_ERROR_INSUFFICIENT_SPACE:
         case XSAN_ERROR_DISK_FULL:
             return 507;  /* Insufficient Storage */
-        case XSAN_ERROR_OUT_OF_MEMORY:
+        case XSAN_ERROR_NO_MEMORY:
         case XSAN_ERROR_GENERIC: // Catch-all for server-side issues
         case XSAN_ERROR_IO:
         case XSAN_ERROR_SYSTEM:
         case XSAN_ERROR_BLOCK_CORRUPTED:
         case XSAN_ERROR_METADATA_CORRUPTED:
             return 500;  /* Internal Server Error */
-        case XSAN_ERROR_NOT_IMPLEMENTED:
+        case XSAN_ERROR_UNSUPPORTED:
             return 501;  /* Not Implemented */
         case XSAN_ERROR_CLUSTER_NOT_READY:
         case XSAN_ERROR_NODE_UNREACHABLE:
@@ -322,7 +274,7 @@ const char *xsan_error_category_string(xsan_error_t error)
 
     if (error == XSAN_OK) return "Success";
     if (error >= XSAN_ERROR_ALREADY_EXISTS && error <= XSAN_ERROR_GENERIC) return "Generic"; // -1 to -13
-    if (error >= XSAN_ERROR_INVALID_SIZE && error <= XSAN_ERROR_FILE_NOT_FOUND) return "File System & Disk"; // -20 to -26
+    if (error >= XSAN_ERROR_INVALID_PARAM && error <= XSAN_ERROR_HOST_UNREACHABLE) return "File System & Disk"; // -2 to -26
     if (error >= XSAN_ERROR_NETWORK_DOWN && error <= XSAN_ERROR_CONNECTION_LOST) return "Network"; // -40 to -44
     if (error >= XSAN_ERROR_INVALID_NODE_STATE && error <= XSAN_ERROR_CLUSTER_GENERIC) return "Cluster"; // -60 to -67
     if (error >= XSAN_ERROR_BLOCK_CORRUPTED && error <= XSAN_ERROR_STORAGE_GENERIC) return "Storage & Device"; // -80 to -87
@@ -345,7 +297,7 @@ bool xsan_error_is_recoverable(xsan_error_t error)
     switch (error) {
         case XSAN_ERROR_TIMEOUT:
         case XSAN_ERROR_INTERRUPTED:
-        case XSAN_ERROR_RESOURCE_BUSY:
+        case XSAN_ERROR_BUSY:
         case XSAN_ERROR_VOLUME_BUSY:
         case XSAN_ERROR_CONNECTION_LOST:
         case XSAN_ERROR_CONNECTION_REFUSED: // Might be recoverable with retry
@@ -367,7 +319,7 @@ bool xsan_error_is_recoverable(xsan_error_t error)
 bool xsan_error_is_fatal(xsan_error_t error)
 {
     switch (error) {
-        case XSAN_ERROR_OUT_OF_MEMORY:
+        case XSAN_ERROR_NO_MEMORY:
         case XSAN_ERROR_BLOCK_CORRUPTED:
         case XSAN_ERROR_METADATA_CORRUPTED:
         case XSAN_ERROR_DEVICE_FAILED:      // Often fatal for operations relying on this device

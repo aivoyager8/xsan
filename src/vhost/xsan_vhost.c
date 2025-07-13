@@ -220,15 +220,15 @@ void xsan_vhost_subsystem_fini(void) { /* ... as before ... */
 
 xsan_error_t xsan_vhost_expose_volume_as_vbdev(xsan_volume_id_t volume_id, const char *vbdev_name) { /* ... as before ... */
     if (spdk_get_thread() == NULL) return XSAN_ERROR_THREAD_CONTEXT;
-    if (!g_volume_manager) return XSAN_ERROR_INVALID_STATE;
+    if (!g_volume_manager) return XSAN_ERROR_INVALID_NODE_STATE;
     if (!vbdev_name || spdk_uuid_is_null((struct spdk_uuid*)&volume_id.data[0])) return XSAN_ERROR_INVALID_PARAM;
     xsan_volume_t *vol = xsan_volume_get_by_id(g_volume_manager, volume_id);
-    if (!vol || vol->block_size_bytes == 0 || vol->num_blocks == 0) return !vol ? XSAN_ERROR_NOT_FOUND : XSAN_ERROR_INVALID_STATE;
+    if (!vol || vol->block_size_bytes == 0 || vol->num_blocks == 0) return !vol ? XSAN_ERROR_NOT_FOUND : XSAN_ERROR_INVALID_NODE_STATE;
     pthread_mutex_lock(&g_xsan_vbdev_list_lock);
     xsan_vbdev_t *check = g_xsan_vbdev_head; while(check){if(strcmp(check->name,vbdev_name)==0){pthread_mutex_unlock(&g_xsan_vbdev_list_lock);return XSAN_ERROR_ALREADY_EXISTS;} check=check->next;}
     pthread_mutex_unlock(&g_xsan_vbdev_list_lock);
-    xsan_vbdev_t *xvbdev = (xsan_vbdev_t *)XSAN_CALLOC(1, sizeof(xsan_vbdev_t)); if (!xvbdev) return XSAN_ERROR_OUT_OF_MEMORY;
-    xvbdev->name = xsan_strdup(vbdev_name); if (!xvbdev->name) { XSAN_FREE(xvbdev); return XSAN_ERROR_OUT_OF_MEMORY; }
+    xsan_vbdev_t *xvbdev = (xsan_vbdev_t *)XSAN_CALLOC(1, sizeof(xsan_vbdev_t)); if (!xvbdev) return XSAN_ERROR_NO_MEMORY;
+    xvbdev->name = xsan_strdup(vbdev_name); if (!xvbdev->name) { XSAN_FREE(xvbdev); return XSAN_ERROR_NO_MEMORY; }
     memcpy(&xvbdev->xsan_volume_id, &volume_id, sizeof(xsan_volume_id_t)); xvbdev->xsan_volume_ptr = vol;
     xvbdev->bdev.name = xvbdev->name; xvbdev->bdev.product_name = "XSAN Virtual Bdev";
     xvbdev->bdev.write_cache = 0; xvbdev->bdev.blocklen = vol->block_size_bytes; xvbdev->bdev.blockcnt = vol->num_blocks;

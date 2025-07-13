@@ -1,6 +1,6 @@
 #include "xsan_metadata_store.h"
 #include "xsan_memory.h" // For XSAN_MALLOC, XSAN_FREE, xsan_strdup
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_log.h"
 
 #include "rocksdb/c.h"   // RocksDB C API
@@ -145,7 +145,7 @@ xsan_error_t xsan_metadata_store_get(xsan_metadata_store_t *store,
         rocksdb_free(*value_out); // Free the rocksdb allocated buffer
         *value_out = NULL;
         *value_len_out = 0;
-        return XSAN_ERROR_OUT_OF_MEMORY;
+        return XSAN_ERROR_NO_MEMORY;
     }
     memcpy(copied_value, *value_out, *value_len_out);
     copied_value[*value_len_out] = '\0'; // Ensure null termination if it's a string

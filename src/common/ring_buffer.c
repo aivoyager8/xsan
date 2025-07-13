@@ -1,6 +1,7 @@
+// 环形缓冲区实现
 #include "xsan_ring_buffer.h"
 #include "xsan_memory.h" // For XSAN_MALLOC, XSAN_CALLOC, XSAN_FREE
-#include "xsan_error.h"  // For error codes
+#include "../../include/xsan_error.h" // 统一错误码头文件
 
 // The main ring buffer structure
 struct xsan_ring_buffer {

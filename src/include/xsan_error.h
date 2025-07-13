@@ -1,3 +1,6 @@
+#ifndef XSAN_ERROR_H
+#define XSAN_ERROR_H
+
 // Deprecated: src/include/xsan_error.h
 #error "Do not use src/include/xsan_error.h. Use include/xsan_error.h instead."
     XSAN_ERROR_INVALID_NODE_STATE = -67,// Node is in an invalid state for the operation
@@ -78,4 +81,4 @@
     XSAN_ERROR_LAST_CODE_MARKER = -261 // Represents the boundary for known error codes
 } xsan_error_t;
 
-#endif /* XSAN_ERROR_H */
+#endif // XSAN_ERROR_H

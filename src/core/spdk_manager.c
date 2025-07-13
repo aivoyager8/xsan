@@ -11,7 +11,7 @@ static void _xsan_spdk_log_print_fn_wrapper(const char *file, int line, const ch
     va_end(args);
 }
 #include "xsan_spdk_manager.h"
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include "xsan_log.h" // For logging XSAN specific messages
 
 #include "spdk/event.h"   // 包含 spdk_app_start, spdk_app_opts_init, spdk_app_stop, spdk_app_fini
@@ -77,7 +77,7 @@ xsan_error_t xsan_spdk_manager_opts_init(const char *app_name,
     // 参数校验优先
     if (!app_name || !spdk_conf_file) {
         XSAN_LOG_ERROR("SPDK manager opts init: missing app_name or conf_file");
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
     // 初始化 opts 结构体
     spdk_app_opts_init(&g_xsan_spdk_app_opts, sizeof(g_xsan_spdk_app_opts));
@@ -105,7 +105,7 @@ xsan_error_t xsan_spdk_manager_start_app(xsan_spdk_app_start_fn_t start_fn, void
 
     if (!start_fn) {
         XSAN_LOG_ERROR("User start function (start_fn) is NULL.");
-        return XSAN_ERROR_INVALID_PARAM;
+        return XSAN_ERROR_CONFIG_PARSE;
     }
 
     xsan_internal_app_start_ctx_t app_main_ctx;
@@ -117,7 +117,7 @@ xsan_error_t xsan_spdk_manager_start_app(xsan_spdk_app_start_fn_t start_fn, void
     if (rc) {
         XSAN_LOG_ERROR("spdk_app_start() failed with return code: %d", rc);
         spdk_app_fini();
-        return XSAN_ERROR_SPDK_START_FAILED;
+        return XSAN_ERROR_TASK_FAILED;
     }
     XSAN_LOG_INFO("SPDK application framework has stopped (spdk_app_start returned). Calling spdk_app_fini().");
     spdk_app_fini();

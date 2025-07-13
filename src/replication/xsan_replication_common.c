@@ -1,7 +1,9 @@
 #include "xsan_replication.h"
+#include "../../include/xsan_storage.h" // 补充完整 struct xsan_volume 定义，消除 incomplete typedef 错误
+#include "xsan_storage.h"
 #include "xsan_memory.h"
 #include "xsan_log.h"
-#include "xsan_storage.h" // For xsan_volume_t definition
+#include "../../src/include/xsan_storage.h" // 确保引用完整定义
 
 #include "spdk/uuid.h"   // For spdk_uuid_get_string, spdk_uuid_copy
 #include <string.h>      // For memset, memcpy

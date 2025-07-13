@@ -2,7 +2,7 @@
 #define XSAN_STORAGE_H
 
 #include "xsan_types.h" // For xsan_uuid_t, XSAN_MAX_NAME_LEN, XSAN_MAX_PATH_LEN (if needed)
-#include "xsan_error.h" // For xsan_error_t
+#include "../../include/xsan_error.h"
 #include <stdint.h>
 #include <stdbool.h>
 

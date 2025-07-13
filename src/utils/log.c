@@ -7,7 +7,7 @@ void xsan_log_cleanup(void) {}
  */
 
 #include "xsan_log.h"
-#include "xsan_error.h"
+#include "../../include/xsan_error.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -137,7 +137,7 @@ xsan_error_t xsan_log_init(const xsan_log_config_t *config)
         g_log_config.file_handle = fopen(g_log_config.log_file, "a");
         if (!g_log_config.file_handle) {
             pthread_mutex_unlock(&g_log_config.lock);
-            return XSAN_ERROR_IO;
+            return XSAN_ERROR_STORAGE_IO;
         }
     }
     

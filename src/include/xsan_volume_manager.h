@@ -3,7 +3,7 @@
 #define XSAN_VOLUME_MANAGER_H
 
 #include "xsan_storage.h" // For xsan_volume_t, xsan_group_id_t, xsan_volume_id_t, xsan_disk_id_t
-#include "xsan_error.h"   // For xsan_error_t
+#include "../../include/xsan_error.h"   // For xsan_error_t
 #include "xsan_disk_manager.h" // For xsan_disk_manager_t (as a dependency)
 
 #ifdef __cplusplus

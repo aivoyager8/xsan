@@ -1,6 +1,7 @@
 #ifndef XSAN_SPDK_MANAGER_H
 #define XSAN_SPDK_MANAGER_H
 
+#include "../../include/xsan_error.h"
 #include "xsan_types.h" // For xsan_error_t
 
 #ifdef __cplusplus

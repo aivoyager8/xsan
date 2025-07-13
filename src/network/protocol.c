@@ -1,6 +1,8 @@
+// 协议实现
 #include "xsan_protocol.h"
 #include "xsan_memory.h" // For XSAN_MALLOC, XSAN_FREE, XSAN_CALLOC
-#include "xsan_error.h"  // For error codes and XSAN_ERROR_PROTOCOL_MAGIC_MISMATCH etc.
+#include "../../include/xsan_error.h" // 统一错误码头文件
+// For error codes and XSAN_ERROR_PROTOCOL_MAGIC_MISMATCH etc.
 #include <string.h>      // For memcpy, memset
 #include <arpa/inet.h>   // For htons, htonl, ntohs, ntohl
 
@@ -86,7 +88,7 @@ xsan_error_t xsan_protocol_header_deserialize(const unsigned char *buffer, xsan_
     header->magic = ntohl(magic_n);
 
     if (header->magic != XSAN_PROTOCOL_MAGIC) {
-        return XSAN_ERROR_PROTOCOL_MAGIC_MISMATCH;
+        return XSAN_ERROR_INVALID_PARAM; // 协议魔数不匹配
     }
 
     memcpy(&type_n, ptr, sizeof(type_n));
@@ -108,7 +110,7 @@ xsan_error_t xsan_protocol_header_deserialize(const unsigned char *buffer, xsan_
     header->payload_length = ntohl(payload_length_n);
 
     if (header->payload_length > XSAN_PROTOCOL_MAX_PAYLOAD_SIZE) {
-        return XSAN_ERROR_PROTOCOL_PAYLOAD_TOO_LARGE;
+        return XSAN_ERROR_INVALID_PARAM; // 协议负载过大
     }
 
     memcpy(&transaction_id_n, ptr, sizeof(transaction_id_n));
