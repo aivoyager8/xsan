@@ -3,6 +3,35 @@
 
 #include "xsan_types.h"
 
+typedef enum xsan_storage_state {
+    XSAN_STORAGE_STATE_UNKNOWN = 0,
+    XSAN_STORAGE_STATE_INITIALIZING,
+    XSAN_STORAGE_STATE_ONLINE,
+    XSAN_STORAGE_STATE_OFFLINE,
+    XSAN_STORAGE_STATE_DEGRADED,
+    XSAN_STORAGE_STATE_FAILED,
+    XSAN_STORAGE_STATE_MAINTENANCE
+} xsan_storage_state_t;
+
+typedef struct xsan_replica_location {
+    char ip[46];      // IPv6 address max length
+    uint16_t port;    // Port number
+    bool is_ipv6;     // Is IPv6 address
+    xsan_storage_state_t state;
+    // 可扩展字段
+} xsan_replica_location_t;
+
+typedef struct xsan_volume {
+    xsan_volume_id_t id;
+    char name[XSAN_MAX_NAME_LEN];
+    uint64_t size_bytes;
+    uint32_t actual_replica_count;
+    xsan_replica_location_t replicas[XSAN_MAX_REPLICAS];
+    xsan_storage_state_t state;
+    uint32_t FTT; // 容错级别
+    // 可扩展元数据字段
+} xsan_volume_t;
+
 /* Storage engine functions */
 
 /**

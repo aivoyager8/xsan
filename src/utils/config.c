@@ -13,7 +13,8 @@
 #include "xsan_log.h"
 #include "xsan_error.h"
 #include "xsan_types.h" // For xsan_node_t, INET_ADDRSTRLEN, XSAN_MAX_NAME_LEN
-#include "spdk/uuid.h"  // For spdk_uuid_parse, spdk_uuid_get_string
+#include "spdk/uuid.h"  // For spdk_uuid_parse, spdk_uuid_fmt_lower
+#include "../include/xsan_storage.h" // 补充 xsan_volume_t 定义
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

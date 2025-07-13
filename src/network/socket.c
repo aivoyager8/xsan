@@ -2,6 +2,7 @@
 #include "xsan_socket.h"
 #include "../../include/xsan_error.h" // 统一错误码头文件
 #include "xsan_string_utils.h" // For xsan_snprintf_safe
+#include "xsan_address.h"  // 网络地址类型定义
 #include <errno.h>
 #include <string.h> // For memset, strchr, strrchr, strlen
 #include <stdio.h>  // For snprintf

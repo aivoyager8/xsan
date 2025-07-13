@@ -1,6 +1,8 @@
 // 协议实现
 #include "xsan_protocol.h"
-#include "xsan_memory.h" // For XSAN_MALLOC, XSAN_FREE, XSAN_CALLOC
+#include "xsan_types.h"  // 确保包含消息结构体定义
+#include "xsan_memory.h"
+
 #include "../../include/xsan_error.h" // 统一错误码头文件
 // For error codes and XSAN_ERROR_PROTOCOL_MAGIC_MISMATCH etc.
 #include <string.h>      // For memcpy, memset
@@ -219,8 +221,10 @@ xsan_message_t *xsan_protocol_message_create(xsan_message_type_t type,
     if (!msg) {
         return NULL; // Out of memory for message struct
     }
-    // Initialize header first (sets checksum to 0 initially)
+
+    // 初始化header和payload
     xsan_protocol_header_init(&msg->header, type, payload_length, transaction_id);
+    msg->payload = NULL;
 
     if (payload_length > 0) {
         msg->payload = (unsigned char *)XSAN_MALLOC(payload_length);
@@ -228,23 +232,18 @@ xsan_message_t *xsan_protocol_message_create(xsan_message_type_t type,
             XSAN_FREE(msg);
             return NULL; // Out of memory for payload
         }
+        
         if (payload_data) {
             memcpy(msg->payload, payload_data, payload_length);
         } else {
-            // If payload_data is NULL but length > 0, it implies an empty (zeroed out) buffer.
             memset(msg->payload, 0, payload_length);
         }
-    } else {
-        msg->payload = NULL;
     }
 
-    // Now calculate and set the checksum for the initialized header and payload
-    // The header already has its checksum field as 0 due to xsan_protocol_header_init.
+    // Calculate checksum
     unsigned char serialized_header_for_calc[XSAN_MESSAGE_HEADER_SIZE];
     if (xsan_protocol_header_serialize(&msg->header, serialized_header_for_calc) != XSAN_OK) {
-        // This serialization is of the header with checksum=0 for calculation purposes.
-        // If it fails, something is wrong, clean up.
-        if(msg->payload) XSAN_FREE(msg->payload);
+        if (msg->payload) XSAN_FREE(msg->payload);
         XSAN_FREE(msg);
         return NULL;
     }
@@ -252,7 +251,7 @@ xsan_message_t *xsan_protocol_message_create(xsan_message_type_t type,
     size_t data_to_checksum_len = XSAN_MESSAGE_HEADER_SIZE + msg->header.payload_length;
     unsigned char *checksum_data_buf = (unsigned char *)XSAN_MALLOC(data_to_checksum_len);
     if (!checksum_data_buf) {
-        if(msg->payload) XSAN_FREE(msg->payload);
+        if (msg->payload) XSAN_FREE(msg->payload);
         XSAN_FREE(msg);
         return NULL; // OOM for checksum calculation buffer
     }
@@ -269,13 +268,12 @@ xsan_message_t *xsan_protocol_message_create(xsan_message_type_t type,
 }
 
 void xsan_protocol_message_destroy(xsan_message_t *msg) {
-    if (!msg) {
-        return;
+    if (msg) {
+        if (msg->payload) {
+            XSAN_FREE(msg->payload);
+        }
+        XSAN_FREE(msg);
     }
-    if (msg->payload) {
-        XSAN_FREE(msg->payload);
-    }
-    XSAN_FREE(msg);
 }
 
 xsan_message_t *xsan_protocol_message_create_with_data(
@@ -299,6 +297,7 @@ xsan_message_t *xsan_protocol_message_create_with_data(
     }
 
     xsan_protocol_header_init(&msg->header, type, total_payload_length, transaction_id);
+    msg->payload = NULL;
 
     if (total_payload_length > 0) {
         msg->payload = (unsigned char *)XSAN_MALLOC(total_payload_length);
@@ -315,14 +314,12 @@ xsan_message_t *xsan_protocol_message_create_with_data(
         if (additional_data && additional_data_len > 0) {
             memcpy(ptr, additional_data, additional_data_len);
         }
-    } else {
-        msg->payload = NULL;
     }
 
     // Calculate checksum
     unsigned char serialized_header_for_calc[XSAN_MESSAGE_HEADER_SIZE];
     if (xsan_protocol_header_serialize(&msg->header, serialized_header_for_calc) != XSAN_OK) {
-        if(msg->payload) XSAN_FREE(msg->payload);
+        if (msg->payload) XSAN_FREE(msg->payload);
         XSAN_FREE(msg);
         return NULL;
     }
@@ -330,7 +327,7 @@ xsan_message_t *xsan_protocol_message_create_with_data(
     size_t data_to_checksum_len = XSAN_MESSAGE_HEADER_SIZE + msg->header.payload_length;
     unsigned char *checksum_data_buf = (unsigned char *)XSAN_MALLOC(data_to_checksum_len);
     if (!checksum_data_buf) {
-        if(msg->payload) XSAN_FREE(msg->payload);
+        if (msg->payload) XSAN_FREE(msg->payload);
         XSAN_FREE(msg);
         return NULL;
     }

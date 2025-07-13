@@ -156,7 +156,6 @@ xsan_error_t xsan_hashtable_remove(xsan_hashtable_t *ht, const void *key)
         current_entry = current_entry->next;
     }
     return XSAN_ERROR_NOT_FOUND;
-// ...existing code...
 }
 
 size_t xsan_hashtable_size(xsan_hashtable_t *ht)
@@ -189,7 +188,7 @@ void xsan_hashtable_clear(xsan_hashtable_t *ht)
     }
     ht->size = 0;
 }
-// ...函数体结束，无需多余闭括号...
+
 void xsan_hashtable_iter_init(xsan_hashtable_t *ht, xsan_hashtable_iter_t *iter) {
     if (!ht || !iter) {
         if (iter) iter->ht = NULL;

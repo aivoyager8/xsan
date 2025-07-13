@@ -1,4 +1,5 @@
 #include "xsan_vhost.h"
+#include "../include/xsan_storage.h" // 补充 xsan_volume_t 定义
 #include "xsan_volume_manager.h" // For xsan_volume_get_by_id, xsan_volume_read/write_async
 #include "xsan_io.h"             // For xsan_user_io_completion_cb_t (used by _xsan_vbdev_io_complete_cb)
 #include "xsan_bdev.h"           // For xsan_bdev_dma_malloc/free, xsan_bdev_get_buf_align

@@ -1,4 +1,5 @@
 #include "xsan_replication.h"
+#include "../include/xsan_storage.h" // 补充 volume 结构体定义
 #include "../../include/xsan_storage.h" // 补充完整 struct xsan_volume 定义，消除 incomplete typedef 错误
 #include "xsan_storage.h"
 #include "xsan_memory.h"
@@ -42,7 +43,7 @@ xsan_replicated_io_ctx_t *xsan_replicated_io_ctx_create(
     rep_ctx->total_replicas_targeted = vol->actual_replica_count;
     if (rep_ctx->total_replicas_targeted == 0 || rep_ctx->total_replicas_targeted > XSAN_MAX_REPLICAS) {
         XSAN_LOG_ERROR("Volume %s has invalid actual_replica_count %u for TID %lu. Cannot create rep_ctx.",
-            spdk_uuid_get_string((struct spdk_uuid*)&vol->id.data[0]), vol->actual_replica_count, transaction_id);
+            spdk_uuid_fmt_lower((struct spdk_uuid*)&vol->id.data[0]), vol->actual_replica_count, transaction_id);
         XSAN_FREE(rep_ctx);
         return NULL;
     }

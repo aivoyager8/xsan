@@ -9,6 +9,7 @@
 #include "xsan_log.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>  // 添加布尔类型支持
 #include <pthread.h>
 #include <assert.h>
 #include <sys/mman.h>

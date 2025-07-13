@@ -1,7 +1,7 @@
 #ifndef XSAN_STORAGE_H
 #define XSAN_STORAGE_H
 
-#include "xsan_types.h" // For xsan_uuid_t, XSAN_MAX_NAME_LEN, XSAN_MAX_PATH_LEN (if needed)
+#include "../../include/xsan_types.h" // 只做前置声明，完整定义在本文件
 #include "../../include/xsan_error.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -10,8 +10,8 @@
 extern "C" {
 #endif
 
-// --- 枚举提前定义，修复类型引用错误 ---
-typedef enum {
+// --- 枚举完整定义 ---
+typedef enum xsan_storage_state {
     XSAN_STORAGE_STATE_UNKNOWN = 0,
     XSAN_STORAGE_STATE_INITIALIZING,
     XSAN_STORAGE_STATE_ONLINE,
@@ -22,6 +22,24 @@ typedef enum {
     XSAN_STORAGE_STATE_REBUILDING,
     XSAN_STORAGE_STATE_MAINTENANCE
 } xsan_storage_state_t;
+// --- struct xsan_replica_location 完整定义 ---
+typedef struct xsan_replica_location {
+    xsan_node_id_t node_id;
+    xsan_disk_id_t disk_id;
+    xsan_storage_state_t state;
+    char location_info[256]; // 可根据实际需求调整
+} xsan_replica_location_t;
+
+// --- struct xsan_volume 完整定义（示例，需根据实际项目补充字段） ---
+typedef struct xsan_volume {
+    xsan_volume_id_t id;
+    char name[XSAN_MAX_NAME_LEN];
+    size_t size_bytes;
+    xsan_replica_location_t replicas[XSAN_MAX_REPLICAS];
+    xsan_storage_state_t state;
+    int actual_replica_count;
+    // ...其他字段...
+} xsan_volume_t;
 
 // --- Type Definitions for IDs ---
 // xsan_node_id_t, xsan_disk_id_t, xsan_group_id_t, xsan_volume_id_t 类型定义已在 xsan_types.h 统一定义，避免重复定义
@@ -32,6 +50,18 @@ typedef enum {
 // --- Constants ---
 #ifndef XSAN_MAX_REPLICAS
 #define XSAN_MAX_REPLICAS 3               // Maximum number of replicas for a volume (e.g., FTT=2 -> 3 replicas)
+// --- 枚举完整定义 ---
+enum xsan_storage_state {
+    XSAN_STORAGE_STATE_UNKNOWN = 0,
+    XSAN_STORAGE_STATE_INITIALIZING,
+    XSAN_STORAGE_STATE_ONLINE,
+    XSAN_STORAGE_STATE_OFFLINE,
+    XSAN_STORAGE_STATE_DEGRADED,
+    XSAN_STORAGE_STATE_FAILED,
+    XSAN_STORAGE_STATE_MISSING,
+    XSAN_STORAGE_STATE_REBUILDING,
+    XSAN_STORAGE_STATE_MAINTENANCE
+};
 #endif
 
 // --- Structures for Replication ---
@@ -40,6 +70,12 @@ typedef enum {
  */
 typedef struct {
     xsan_node_id_t node_id;                     ///< ID of the node hosting this replica
+struct xsan_replica_location {
+    xsan_node_id_t node_id;
+    xsan_disk_id_t disk_id;
+    enum xsan_storage_state state;
+    char location_info[256]; // 可根据实际需求调整
+};
     char node_ip_addr[INET6_ADDRSTRLEN];        ///< IP address of the replica node for communication
     uint16_t node_comm_port;                    ///< Communication port on the replica node
     xsan_storage_state_t state;                 ///< Current state of this specific replica (e.g., ONLINE, OFFLINE, DEGRADED)
@@ -51,6 +87,12 @@ typedef struct {
 // --- Enumerations for Storage Entities ---
 
 /**
+struct xsan_volume {
+    xsan_volume_id_t id;
+    char name[XSAN_MAX_NAME_LEN];
+    size_t size_bytes;
+    // ...其他字段...
+};
  * @brief Defines the physical type of a storage disk.
  * This is typically inferred from SPDK bdev properties.
  */

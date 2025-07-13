@@ -7,6 +7,7 @@ void xsan_log_cleanup(void) {}
  */
 
 #include "xsan_log.h"
+#include "../include/xsan_storage.h" // 补充 xsan_volume_t 定义
 #include "../../include/xsan_error.h"
 #include <stdlib.h>
 #include <string.h>
